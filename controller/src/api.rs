@@ -255,11 +255,27 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
+    #[async_trait::async_trait]
+    pub trait SessionManagerTrait {
+        async fn create_session(
+            &self,
+            language_title: String,
+            user_id: Option<String>,
+            context: serde_json::Value,
+            script_content: Option<String>,
+            compile_options: Option<serde_json::Value>,
+        ) -> Result<Session>;
+
+        async fn get_session(&self, request_id: &str) -> Result<Option<Session>>;
+
+        async fn update_session(&self, session: &Session) -> Result<()>;
+    }
+
     mock! {
         pub SessionManager {}
 
         #[async_trait::async_trait]
-        trait SessionManagerTrait {
+        impl SessionManagerTrait for SessionManager {
             async fn create_session(
                 &self,
                 language_title: String,
@@ -275,11 +291,20 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
+    pub trait RuntimeManagerTrait {
+        async fn execute(
+            &self,
+            session: &Session,
+            params: serde_json::Value,
+        ) -> Result<RuntimeExecuteResponse>;
+    }
+
     mock! {
         pub RuntimeManager {}
 
         #[async_trait::async_trait]
-        trait RuntimeManagerTrait {
+        impl RuntimeManagerTrait for RuntimeManager {
             async fn execute(
                 &self,
                 session: &Session,
@@ -348,7 +373,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(Arc::new(mock_session_manager) as Arc<dyn SessionManager>))
+                .app_data(Data::new(Arc::new(mock_session_manager) as Arc<dyn SessionManagerTrait>))
                 .app_data(Data::new(create_test_config()))
                 .configure(configure),
         )
@@ -378,7 +403,7 @@ mod tests {
     async fn test_initialize_missing_language_title() {
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(Arc::new(MockSessionManager::new()) as Arc<dyn SessionManager>))
+                .app_data(Data::new(Arc::new(MockSessionManager::new()) as Arc<dyn SessionManagerTrait>))
                 .app_data(Data::new(create_test_config()))
                 .configure(configure),
         )
@@ -408,7 +433,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(Arc::new(MockSessionManager::new()) as Arc<dyn SessionManager>))
+                .app_data(Data::new(Arc::new(MockSessionManager::new()) as Arc<dyn SessionManagerTrait>))
                 .app_data(Data::new(config))
                 .configure(configure),
         )
@@ -457,8 +482,8 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(Arc::new(mock_session_manager) as Arc<dyn SessionManager>))
-                .app_data(Data::new(Arc::new(mock_runtime_manager) as Arc<dyn RuntimeManager>))
+                .app_data(Data::new(Arc::new(mock_session_manager) as Arc<dyn SessionManagerTrait>))
+                .app_data(Data::new(Arc::new(mock_runtime_manager) as Arc<dyn RuntimeManagerTrait>))
                 .configure(configure),
         )
         .await;
@@ -491,8 +516,8 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(Arc::new(mock_session_manager) as Arc<dyn SessionManager>))
-                .app_data(Data::new(Arc::new(MockRuntimeManager::new()) as Arc<dyn RuntimeManager>))
+                .app_data(Data::new(Arc::new(mock_session_manager) as Arc<dyn SessionManagerTrait>))
+                .app_data(Data::new(Arc::new(MockRuntimeManager::new()) as Arc<dyn RuntimeManagerTrait>))
                 .configure(configure),
         )
         .await;
@@ -522,7 +547,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(Data::new(Arc::new(mock_session_manager) as Arc<dyn SessionManager>))
+                .app_data(Data::new(Arc::new(mock_session_manager) as Arc<dyn SessionManagerTrait>))
                 .configure(configure),
         )
         .await;
