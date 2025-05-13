@@ -33,8 +33,14 @@ Host: api.lambda-microservice.example.com
     "environment": "production",
     "user_id": "user-123",
     "timeout_ms": 30000,  // ミリ秒単位のタイムアウト（デフォルト: 30000）
-    "retain_session": true  // セッションを保持するかどうか
-  }
+    "retain_session": true,  // セッションを保持するかどうか
+    "compile_options": {     // コンパイル型言語用のオプション（Rust等）
+      "optimization_level": "release",  // debug/release
+      "features": ["feature1", "feature2"],  // 有効にする機能
+      "target": "x86_64-unknown-linux-gnu"   // ターゲットプラットフォーム
+    }
+  },
+  "script_content": "// 実行するスクリプト本体\nmodule.exports = async (event) => {\n  const { values } = event.params;\n  return { result: values.reduce((a, b) => a + b, 0) };\n};"
 }
 ```
 
@@ -179,7 +185,7 @@ GET /api/v1/functions
 Host: api.lambda-microservice.example.com
 ```
 
-利用可能なスクリプト（Language-Title）の一覧を取得します。
+利用可能なスクリプト（Language-Title）の一覧を取得します。これには事前定義されたスクリプトと、ユーザーが動的に登録したスクリプトの両方が含まれます。
 
 #### リクエストヘッダ
 
@@ -192,6 +198,8 @@ Host: api.lambda-microservice.example.com
 | パラメータ | 必須 | 説明 |
 |-----------|------|------|
 | language | オプション | 特定言語のみフィルタ（例: nodejs） |
+| user_id | オプション | 特定ユーザーが登録したスクリプトのみフィルタ |
+| type | オプション | スクリプトタイプでフィルタ（predefined: 事前定義、dynamic: 動的登録） |
 | page | オプション | ページ番号（デフォルト: 1） |
 | per_page | オプション | 1ページあたりの件数（デフォルト: 20、最大: 100） |
 
@@ -208,6 +216,7 @@ Host: api.lambda-microservice.example.com
       "title": "calculator",
       "language_title": "nodejs-calculator",
       "description": "基本的な計算機能を提供",
+      "type": "predefined",
       "created_at": "2025-01-01T00:00:00Z",
       "updated_at": "2025-01-02T00:00:00Z"
     },
@@ -216,8 +225,19 @@ Host: api.lambda-microservice.example.com
       "title": "image-processor",
       "language_title": "python-image-processor",
       "description": "画像処理機能を提供",
+      "type": "predefined",
       "created_at": "2025-01-03T00:00:00Z",
       "updated_at": "2025-01-04T00:00:00Z"
+    },
+    {
+      "language": "rust",
+      "title": "data-analyzer",
+      "language_title": "rust-data-analyzer",
+      "description": "ユーザー定義の大規模データ分析",
+      "type": "dynamic",
+      "user_id": "user-123",
+      "created_at": "2025-05-10T14:30:00Z",
+      "updated_at": "2025-05-10T14:30:00Z"
     }
     // ...
   ]
@@ -231,7 +251,7 @@ GET /api/v1/functions/{language_title}
 Host: api.lambda-microservice.example.com
 ```
 
-特定のスクリプト（Language-Title）の詳細情報を取得します。
+特定のスクリプト（Language-Title）の詳細情報を取得します。動的に登録されたスクリプトの場合は、スクリプト本体も含まれます。
 
 #### リクエストヘッダ
 
@@ -247,8 +267,11 @@ Host: api.lambda-microservice.example.com
   "title": "calculator",
   "language_title": "nodejs-calculator",
   "description": "基本的な計算機能を提供",
+  "type": "predefined",  // predefined または dynamic
+  "user_id": "user-123",  // 動的スクリプトの場合のみ
   "created_at": "2025-01-01T00:00:00Z",
   "updated_at": "2025-01-02T00:00:00Z",
+  "script_content": "module.exports = async (event) => {\n  const { operation, values } = event.params;\n  let result;\n  switch(operation) {\n    case 'add':\n      result = values.reduce((a, b) => a + b, 0);\n      break;\n    // ...\n  }\n  return { value: result };\n};",  // 動的スクリプトの場合のみ
   "schema": {
     "params": {
       "type": "object",
@@ -293,7 +316,12 @@ Host: api.lambda-microservice.example.com
         }
       }
     }
-  ]
+  ],
+  "compile_options": {  // コンパイル型言語（Rust等）の場合のみ
+    "optimization_level": "release",
+    "features": ["feature1", "feature2"],
+    "target": "x86_64-unknown-linux-gnu"
+  }
 }
 ```
 

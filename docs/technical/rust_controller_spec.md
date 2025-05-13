@@ -8,11 +8,12 @@ Rust Controllerは、lambda-microservice基盤の中核コンポーネントと�
 
 - リクエストヘッダ（Language-Title）の解析
 - セッション管理（作成・取得・有効期限管理）
+- スクリプト本体の動的登録と管理
 - 適切なランタイムコンテナの選択
 - Redisキャッシュの管理（読み取り/書き込み）
 - ランタイムコンテナとの通信
 - 実行結果の処理
-- PostgreSQLへの処理ログとセッション情報の永続化
+- PostgreSQLへの処理ログ、セッション情報、スクリプト本体の永続化
 - メトリクスの収集と公開
 
 ## 3. アーキテクチャ
@@ -46,14 +47,17 @@ Rust Controllerは、lambda-microservice基盤の中核コンポーネントと�
 
 ### 4.2 Session Manager
 
-- **機能**: セッション管理を担当
+- **機能**: セッション管理とスクリプト登録を担当
 - **責務**:
   - セッション作成（初期化リクエスト時）
+  - スクリプト本体の登録と保存
   - セッション取得（パラメータリクエスト時）
   - セッション有効期限管理
   - セッション永続化（PostgreSQL）
-  - セッション復元（サーバー再起動時）
+  - スクリプト本体の永続化（PostgreSQL）
+  - セッションとスクリプトの復元（サーバー再起動時）
   - 定期的なセッションクリーンアップ
+  - コンパイル型言語（Rust等）のスクリプトコンパイル管理
 
 ### 4.3 Workflow Manager
 
@@ -68,11 +72,16 @@ Rust Controllerは、lambda-microservice基盤の中核コンポーネントと�
 
 ### 4.4 Runtime Selector
 
-- **機能**: Language-Titleに基づいて適切なランタイムコンテナを選択
+- **機能**: Language-Titleに基づいて適切なランタイムコンテナを選択し、スクリプト実行を管理
 - **選択ロジック**:
   - プレフィックスマッチング（例: "nodejs-", "python-", "rust-"）
   - 設定ファイルベースのマッピング
   - 動的ディスカバリー（Kubernetes Service Discovery利用）
+- **スクリプト実行管理**:
+  - 動的に登録されたスクリプトの実行環境準備
+  - インタープリタ言語（Node.js、Python）のスクリプト直接実行
+  - コンパイル型言語（Rust）のスクリプトコンパイルと実行
+  - WebAssembly変換とキャッシュ（Rust等のコンパイル型言語用）
 
 ### 4.5 Cache Manager
 
@@ -121,7 +130,18 @@ Content-Type: application/json
 Language-Title: {language}-{title}
 
 {
-  "context": {...}
+  "context": {
+    "environment": "production",
+    "user_id": "user-123",
+    "timeout_ms": 30000,
+    "retain_session": true,
+    "compile_options": {
+      "optimization_level": "release",
+      "features": ["feature1", "feature2"],
+      "target": "x86_64-unknown-linux-gnu"
+    }
+  },
+  "script_content": "// スクリプト本体\nmodule.exports = async (event) => {\n  // 処理ロジック\n};"
 }
 ```
 
