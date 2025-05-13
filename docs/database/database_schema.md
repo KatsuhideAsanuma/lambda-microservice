@@ -227,6 +227,12 @@ CREATE TABLE meta.sessions (
     execution_count INTEGER NOT NULL DEFAULT 0,
     status VARCHAR(16) NOT NULL DEFAULT 'active',
     context JSONB,
+    script_content TEXT,  -- 動的に登録されたスクリプト本体
+    script_hash VARCHAR(64),  -- スクリプト内容のハッシュ値（重複検出用）
+    compiled_artifact BYTEA,  -- コンパイル型言語用のコンパイル済みバイナリ/WASM
+    compile_options JSONB,  -- コンパイルオプション（Rust等のコンパイル型言語用）
+    compile_status VARCHAR(16),  -- コンパイル状態（pending/success/error）
+    compile_error TEXT,  -- コンパイルエラーメッセージ
     metadata JSONB
 );
 
@@ -235,6 +241,8 @@ CREATE INDEX idx_sessions_language_title ON meta.sessions (language_title);
 CREATE INDEX idx_sessions_user_id ON meta.sessions (user_id);
 CREATE INDEX idx_sessions_status ON meta.sessions (status);
 CREATE INDEX idx_sessions_expires_at ON meta.sessions (expires_at);
+CREATE INDEX idx_sessions_script_hash ON meta.sessions (script_hash);
+CREATE INDEX idx_sessions_compile_status ON meta.sessions (compile_status);
 
 -- 有効期限切れセッションクリーンアップ関数
 CREATE OR REPLACE FUNCTION meta.cleanup_expired_sessions()
@@ -272,6 +280,23 @@ BEFORE UPDATE ON meta.sessions
 FOR EACH ROW
 WHEN (NEW.execution_count > OLD.execution_count)
 EXECUTE FUNCTION meta.update_session_on_execute();
+
+-- スクリプトハッシュ計算関数
+CREATE OR REPLACE FUNCTION meta.calculate_script_hash()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.script_content IS NOT NULL THEN
+        NEW.script_hash = encode(sha256(NEW.script_content::bytea), 'hex');
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- スクリプトハッシュ計算トリガー
+CREATE TRIGGER calculate_script_hash
+BEFORE INSERT OR UPDATE OF script_content ON meta.sessions
+FOR EACH ROW
+EXECUTE FUNCTION meta.calculate_script_hash();
 ```
 
 ## 4. ビュー定義
