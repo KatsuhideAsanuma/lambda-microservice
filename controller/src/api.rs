@@ -2,7 +2,7 @@
 use crate::{
     config::Config,
     error::{Result},
-    runtime::{RuntimeExecuteResponse, RuntimeType},
+    runtime::{RuntimeConfig, RuntimeExecuteResponse, RuntimeType},
     session::{Session},
 };
 use actix_web::{
