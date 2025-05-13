@@ -6,14 +6,14 @@ lambda-microservice基盤のAPI仕様を定義します。このAPIは、外部�
 
 ## 2. エンドポイント
 
-### 2.1 スクリプト実行 API
+### 2.1 初期化リクエスト API
 
 ```
-POST /api/v1/execute
+POST /api/v1/initialize
 Host: api.lambda-microservice.example.com
 ```
 
-このエンドポイントは、指定された言語でスクリプトを実行します。
+このエンドポイントは、関数実行のセッションを初期化し、リクエストIDを返します。
 
 #### リクエストヘッダ
 
@@ -23,6 +23,62 @@ Host: api.lambda-microservice.example.com
 | Authorization | 必須 | Bearer {token} |
 | Language-Title | 必須 | 実行言語とスクリプトタイトル（例: nodejs-calculator） |
 | X-Request-ID | オプション | クライアント側で生成したリクエストID |
+
+#### リクエスト本文
+
+```json
+{
+  "context": {
+    // 実行コンテキスト情報
+    "environment": "production",
+    "user_id": "user-123",
+    "timeout_ms": 30000,  // ミリ秒単位のタイムアウト（デフォルト: 30000）
+    "retain_session": true  // セッションを保持するかどうか
+  }
+}
+```
+
+#### レスポンス
+
+**成功時 (200 OK)**
+
+```json
+{
+  "request_id": "f8c3de3d-1234-5678-9abc-def012345678",
+  "status": "initialized",
+  "expires_at": "2025-05-13T12:28:22Z"
+}
+```
+
+**エラー時**
+
+```json
+{
+  "error": {
+    "code": "INITIALIZATION_ERROR",
+    "message": "エラーメッセージ",
+    "details": {
+      // エラー詳細情報
+    }
+  }
+}
+```
+
+### 2.2 パラメータ実行 API
+
+```
+POST /api/v1/execute/{request_id}
+Host: api.lambda-microservice.example.com
+```
+
+このエンドポイントは、初期化で取得したリクエストIDを使用して、パラメータを送信し関数を実行します。
+
+#### リクエストヘッダ
+
+| ヘッダ名 | 必須 | 説明 |
+|---------|------|------|
+| Content-Type | 必須 | application/json |
+| Authorization | 必須 | Bearer {token} |
 | X-Cache-Control | オプション | no-cache（キャッシュを無視）、max-age={seconds}（キャッシュTTL指定） |
 
 #### リクエスト本文
@@ -34,12 +90,6 @@ Host: api.lambda-microservice.example.com
     // 例: 計算機能の場合
     "operation": "add",
     "values": [1, 2, 3]
-  },
-  "context": {
-    // 実行コンテキスト情報（オプション）
-    "environment": "production",
-    "user_id": "user-123",
-    "timeout": 5000  // ミリ秒単位のタイムアウト（デフォルト: 5000）
   }
 }
 ```
@@ -50,7 +100,7 @@ Host: api.lambda-microservice.example.com
 
 ```json
 {
-  "request_id": "req-12345",
+  "request_id": "f8c3de3d-1234-5678-9abc-def012345678",
   "language_title": "nodejs-calculator",
   "execution_time": 42,  // ミリ秒
   "cached": false,       // キャッシュからの結果かどうか
@@ -66,7 +116,7 @@ Host: api.lambda-microservice.example.com
 
 ```json
 {
-  "request_id": "req-12345",
+  "request_id": "f8c3de3d-1234-5678-9abc-def012345678",
   "error": {
     "code": "RUNTIME_ERROR",
     "message": "エラーメッセージ",
@@ -88,10 +138,39 @@ Host: api.lambda-microservice.example.com
 | 400 | 不正なリクエスト（パラメータ不足、形式不正など） |
 | 401 | 認証エラー |
 | 403 | 権限エラー |
-| 404 | 指定されたLanguage-Titleが見つからない |
+| 404 | 指定されたリクエストIDが見つからない、または有効期限切れ |
 | 429 | レートリミット超過 |
 | 500 | サーバー内部エラー |
 | 504 | タイムアウト |
+
+### 2.3 セッション状態取得 API
+
+```
+GET /api/v1/sessions/{request_id}
+Host: api.lambda-microservice.example.com
+```
+
+このエンドポイントは、特定のセッション（リクエストID）の状態を取得します。
+
+#### リクエストヘッダ
+
+| ヘッダ名 | 必須 | 説明 |
+|---------|------|------|
+| Authorization | 必須 | Bearer {token} |
+
+#### レスポンス
+
+```json
+{
+  "request_id": "f8c3de3d-1234-5678-9abc-def012345678",
+  "language_title": "nodejs-calculator",
+  "status": "active",
+  "created_at": "2025-05-13T10:28:22Z",
+  "expires_at": "2025-05-13T12:28:22Z",
+  "execution_count": 3,
+  "last_executed_at": "2025-05-13T11:15:30Z"
+}
+```
 
 ### 2.2 スクリプト一覧取得 API
 
