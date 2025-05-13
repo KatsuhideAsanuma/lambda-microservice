@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  # Database
+  postgres:
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: lambda_microservice
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Node.js Runtime
+  nodejs-runtime:
+    build:
+      context: ./runtimes/nodejs
+    ports:
+      - "8081:8080"
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - controller
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Python Runtime
+  python-runtime:
+    build:
+      context: ./runtimes/python
+    ports:
+      - "8082:8080"
+    environment:
+      - PYTHON_ENV=development
+    depends_on:
+      - controller
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Rust Runtime
+  rust-runtime:
+    build:
+      context: ./runtimes/rust
+    ports:
+      - "8083:8080"
+    environment:
+      - RUST_ENV=development
+    depends_on:
+      - controller
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Rust Controller
+  controller:
+    build:
+      context: ./controller
+    ports:
+      - "8080:8080"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/lambda_microservice
+      - REDIS_URL=redis://redis:6379
+      - SESSION_EXPIRY_SECONDS=3600
+      - NODEJS_RUNTIME_URL=http://nodejs-runtime:8080
+      - PYTHON_RUNTIME_URL=http://python-runtime:8080
+      - RUST_RUNTIME_URL=http://rust-runtime:8080
+      - RUNTIME_TIMEOUT_SECONDS=30
+      - MAX_SCRIPT_SIZE=1048576
+      - WASM_COMPILE_TIMEOUT_SECONDS=60
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:

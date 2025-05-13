@@ -227,116 +227,233 @@ def test_invalid_image_data():
 
 ### 4.1 コンポーネント間連携テスト
 
+#### テスト環境
+
+Docker Composeを使用して、すべてのコンポーネントを含む統合テスト環境を構築します。
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # Database
+  postgres:
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: lambda_microservice
+    
+  # Redis
+  redis:
+    image: redis:7-alpine
+    
+  # Node.js Runtime
+  nodejs-runtime:
+    build:
+      context: ./runtimes/nodejs
+      
+  # Python Runtime
+  python-runtime:
+    build:
+      context: ./runtimes/python
+      
+  # Rust Runtime
+  rust-runtime:
+    build:
+      context: ./runtimes/rust
+      
+  # Rust Controller
+  controller:
+    build:
+      context: ./controller
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/lambda_microservice
+      - REDIS_URL=redis://redis:6379
+      - NODEJS_RUNTIME_URL=http://nodejs-runtime:8080
+      - PYTHON_RUNTIME_URL=http://python-runtime:8080
+      - RUST_RUNTIME_URL=http://rust-runtime:8080
+```
+
+#### 統合テスト構造
+
+統合テストは`controller/tests/integration/`ディレクトリに実装され、以下のファイルで構成されています：
+
+- `mod.rs` - テストモジュール定義
+- `utils.rs` - テスト用ユーティリティ関数
+- `api_tests.rs` - APIエンドポイントのテスト
+- `session_tests.rs` - セッション管理のテスト
+- `runtime_tests.rs` - ランタイム固有のテスト
+
 #### テストケース例
 
 | ID | テスト内容 | 前提条件 | 期待結果 |
 |----|-----------|---------|---------|
-| IT-001 | Envoy → OpenFaaS Gateway連携 | 有効なリクエスト | 正しくルーティングされる |
-| IT-002 | OpenFaaS Gateway → Rustコントローラ連携 | 有効なリクエスト | 正しく転送される |
-| IT-003 | Rustコントローラ → ランタイムコンテナ連携 | 有効なリクエスト | 正しく実行される |
-| IT-004 | Rustコントローラ → Redis連携 | キャッシュ操作 | 正しくキャッシュされる |
-| IT-005 | Rustコントローラ → PostgreSQL連携 | ログ記録 | 正しく記録される |
+| IT-001 | 初期化リクエスト処理 | Docker Compose環境 | セッション作成と正しいリクエストID返却 |
+| IT-002 | 実行リクエスト処理 | 有効なリクエストID | 正しい実行結果の返却 |
+| IT-003 | セッション永続化 | 初期化済みセッション | セッション情報の正しい保存と取得 |
+| IT-004 | キャッシュ機能 | 同一パラメータでの複数回実行 | 2回目以降はキャッシュから返却 |
+| IT-005 | 動的スクリプト登録 | 各言語のスクリプト | 正しく登録・実行される |
+| IT-006 | エラー処理 | 無効なリクエスト | 適切なエラーレスポンス |
 
-#### テスト実装例（Postman/Newman）
+#### テスト実装例（Rust統合テスト）
 
-```json
-{
-  "info": {
-    "name": "Lambda Microservice Integration Tests",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "item": [
-    {
-      "name": "Execute Node.js Function",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          },
-          {
-            "key": "Language-Title",
-            "value": "nodejs-calculator"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"params\": {\n    \"operation\": \"add\",\n    \"values\": [1, 2, 3]\n  },\n  \"context\": {\n    \"environment\": \"test\"\n  }\n}"
-        },
-        "url": {
-          "raw": "{{baseUrl}}/api/v1/execute",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "v1", "execute"]
-        }
-      },
-      "test": [
-        "pm.test('Status code is 200', function() {",
-        "  pm.response.to.have.status(200);",
-        "});",
-        "pm.test('Response has correct result', function() {",
-        "  var jsonData = pm.response.json();",
-        "  pm.expect(jsonData.result.value).to.eql(6);",
-        "});"
-      ]
-    }
-  ]
+```rust
+#[actix_rt::test]
+#[ignore]
+async fn test_initialize_and_execute() {
+    let app = create_test_app().await;
+    
+    // 初期化リクエスト
+    let init_req = test::TestRequest::post()
+        .uri("/api/v1/initialize")
+        .insert_header(header::ContentType::json())
+        .insert_header(("Language-Title", "nodejs-calculator"))
+        .set_json(json!({
+            "context": {
+                "environment": "test"
+            },
+            "script_content": "module.exports = async (event) => { const { values } = event.params; return { result: values.reduce((a, b) => a + b, 0) }; }"
+        }))
+        .to_request();
+    
+    let init_resp = test::call_service(&app, init_req).await;
+    assert_eq!(init_resp.status(), StatusCode::OK);
+    
+    let init_body: Value = test::read_body_json(init_resp).await;
+    let request_id = init_body["request_id"].as_str().unwrap();
+    
+    // 実行リクエスト
+    let exec_req = test::TestRequest::post()
+        .uri(&format!("/api/v1/execute/{}", request_id))
+        .insert_header(header::ContentType::json())
+        .set_json(json!({
+            "params": {
+                "values": [1, 2, 3, 4, 5]
+            }
+        }))
+        .to_request();
+    
+    let exec_resp = test::call_service(&app, exec_req).await;
+    assert_eq!(exec_resp.status(), StatusCode::OK);
+    
+    let exec_body: Value = test::read_body_json(exec_resp).await;
+    assert_eq!(exec_body["result"], 15);
 }
+```
+
+#### 統合テスト実行
+
+統合テストは以下のスクリプトで実行できます：
+
+```bash
+# システム起動
+docker-compose up -d
+
+# 統合テスト実行
+./scripts/run_integration_tests.sh
+```
+
+テストは`#[ignore]`属性でマークされており、以下のコマンドで実行できます：
+
+```bash
+cargo test --features test-integration -- --ignored
+```
 ```
 
 ### 4.2 エンドツーエンドテスト
 
+#### 包括的なE2Eテストスクリプト
+
+エンドツーエンドテストは`scripts/test_e2e.sh`スクリプトで実装されており、以下の機能を検証します：
+
+1. 複数言語での関数実行（Node.js、Python、Rust）
+2. 異なる操作タイプ（加算、乗算）
+3. エラー処理
+4. キャッシュ機能
+
+```bash
+#!/bin/bash
+set -e
+
+# サービス起動確認
+wait_for_services() {
+  echo "Waiting for services to be ready..."
+  
+  while ! curl -s http://localhost:8080/health > /dev/null; do
+    echo -n "."
+    sleep 2
+  done
+  
+  # 各ランタイムの準備確認
+  while ! curl -s http://localhost:8081/health > /dev/null; do
+    echo -n "."
+    sleep 2
+  done
+  
+  # 他のランタイムも同様に確認
+}
+
+# テスト実行関数
+run_test() {
+  local test_name=$1
+  local language_title=$2
+  local script_content=$3
+  local test_params=$4
+  local expected_result=$5
+  
+  echo "Running test: $test_name"
+  
+  # 初期化リクエスト
+  local init_response=$(curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -H "Language-Title: $language_title" \
+    -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $script_content}" \
+    http://localhost:8080/api/v1/initialize)
+  
+  local request_id=$(echo $init_response | jq -r '.request_id')
+  
+  # 実行リクエスト
+  local exec_response=$(curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -d "{\"params\": $test_params}" \
+    http://localhost:8080/api/v1/execute/$request_id)
+  
+  # 結果検証
+  local actual_result=$(echo $exec_response | jq -r '.result')
+  
+  if echo $actual_result | jq -e "$expected_result" > /dev/null; then
+    echo "Test passed: $test_name"
+    return 0
+  else
+    echo "Test failed: $test_name"
+    return 1
+  fi
+}
+```
+
 #### テストケース例
 
 | ID | テスト内容 | 前提条件 | 期待結果 |
 |----|-----------|---------|---------|
-| E2E-001 | Node.js計算機能の実行 | システム全体が稼働中 | 正しい計算結果の返却 |
-| E2E-002 | Python画像処理の実行 | システム全体が稼働中 | 正しく処理された画像の返却 |
-| E2E-003 | Rust暗号化処理の実行 | システム全体が稼働中 | 正しく暗号化されたデータの返却 |
-| E2E-004 | キャッシュ機能の検証 | 同一リクエストの連続実行 | 2回目以降はキャッシュから返却 |
-| E2E-005 | エラー処理の検証 | 不正なリクエスト | 適切なエラーレスポンス |
+| E2E-001 | Node.js加算処理 | Docker Compose環境 | 正しい計算結果（15） |
+| E2E-002 | Node.js乗算処理 | Docker Compose環境 | 正しい計算結果（120） |
+| E2E-003 | Python加算処理 | Docker Compose環境 | 正しい計算結果（15） |
+| E2E-004 | Python乗算処理 | Docker Compose環境 | 正しい計算結果（120） |
+| E2E-005 | Rust加算処理 | Docker Compose環境 | 正しい計算結果（15） |
+| E2E-006 | Rust乗算処理 | Docker Compose環境 | 正しい計算結果（120） |
+| E2E-007 | エラー処理検証 | 無効な操作 | エラーレスポンス |
+| E2E-008 | キャッシュ機能検証 | 同一リクエスト実行 | 2回目はキャッシュから返却 |
 
-#### テスト実装例（k6）
+#### E2Eテスト実行
 
-```javascript
-import http from 'k6/http';
-import { check, sleep } from 'k6';
+エンドツーエンドテストは以下のコマンドで実行できます：
 
-export default function() {
-  // 1回目のリクエスト
-  let payload = JSON.stringify({
-    params: {
-      operation: 'add',
-      values: [1, 2, 3]
-    },
-    context: {
-      environment: 'test'
-    }
-  });
-  
-  let headers = {
-    'Content-Type': 'application/json',
-    'Language-Title': 'nodejs-calculator'
-  };
-  
-  let res1 = http.post('http://api.example.com/api/v1/execute', payload, { headers: headers });
-  
-  check(res1, {
-    'status is 200': (r) => r.status === 200,
-    'result is correct': (r) => JSON.parse(r.body).result.value === 6,
-    'cached is false': (r) => JSON.parse(r.body).cached === false
-  });
-  
-  // 2回目の同一リクエスト（キャッシュ検証）
-  let res2 = http.post('http://api.example.com/api/v1/execute', payload, { headers: headers });
-  
-  check(res2, {
-    'status is 200': (r) => r.status === 200,
-    'result is correct': (r) => JSON.parse(r.body).result.value === 6,
-    'cached is true': (r) => JSON.parse(r.body).cached === true,
-    'execution time is faster': (r) => JSON.parse(r.body).execution_time < JSON.parse(res1.body).execution_time
-  });
-}
+```bash
+./scripts/test_e2e.sh
+```
+
+このスクリプトは自動的にDocker Compose環境を起動し、すべてのテストケースを実行します。
 ```
 
 ## 5. 性能テスト
@@ -555,6 +672,54 @@ zap-cli quick-scan --self-contained --start-options '-config api.disablekey=true
 
 ### 9.1 テスト環境構成
 
+#### ローカル開発・テスト環境（Docker Compose）
+
+- Docker Composeによる完全統合環境
+- 以下のコンポーネントを含む：
+  - Rustコントローラ
+  - Node.jsランタイム
+  - Pythonランタイム
+  - Rustランタイム
+  - PostgreSQLデータベース
+  - Redisキャッシュ
+- ヘルスチェック機能付き
+- ボリューム永続化
+
+```yaml
+# docker-compose.yml（抜粋）
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      
+  controller:
+    build:
+      context: ./controller
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/lambda_microservice
+      - REDIS_URL=redis://redis:6379
+      - NODEJS_RUNTIME_URL=http://nodejs-runtime:8080
+      - PYTHON_RUNTIME_URL=http://python-runtime:8080
+      - RUST_RUNTIME_URL=http://rust-runtime:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+```
+
 #### 開発環境
 
 - ローカルKubernetes (minikube/kind)
@@ -583,6 +748,21 @@ zap-cli quick-scan --self-contained --start-options '-config api.disablekey=true
 - エッジケース用特殊データ
 
 ### 9.3 環境セットアップ
+
+#### Docker Compose環境セットアップ
+
+```bash
+# Docker Compose環境起動
+docker-compose up -d
+
+# 統合テスト実行
+./scripts/run_integration_tests.sh
+
+# エンドツーエンドテスト実行
+./scripts/test_e2e.sh
+```
+
+#### Kubernetes環境セットアップ
 
 ```bash
 # テスト環境セットアップスクリプト例
