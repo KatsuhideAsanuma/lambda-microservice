@@ -18,7 +18,7 @@ COPY . .
 RUN cargo build --release
 
 # Create runtime image
-FROM debian:bookworm-slim
+FROM rust:latest
 
 WORKDIR /app
 

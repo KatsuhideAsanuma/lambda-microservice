@@ -23,14 +23,13 @@ COPY . .
 RUN cargo build --release
 
 # Runtime stage
-FROM debian:bullseye-slim
+FROM rust:latest
 
 WORKDIR /app
 
 # Install runtime dependencies
 RUN apt-get update && \
-    apt-get install -y ca-certificates libssl-dev wget && \
-    apt-get install -y libssl3 || apt-get install -y libssl1.1 && \
+    apt-get install -y ca-certificates wget && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from the builder stage
