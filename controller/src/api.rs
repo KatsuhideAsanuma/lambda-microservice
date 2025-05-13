@@ -1,8 +1,8 @@
 
 use crate::{
-    config::{Config, RuntimeConfig},
+    config::Config,
     error::{Result},
-    runtime::{RuntimeExecuteResponse, RuntimeType},
+    runtime::{RuntimeConfig, RuntimeExecuteResponse, RuntimeType},
     session::{Session},
 };
 use actix_web::{
@@ -294,7 +294,7 @@ pub trait RuntimeManagerTrait {
 mod tests {
     use super::*;
     use crate::{
-        runtime::{RuntimeConfig, RuntimeExecuteResponse, RuntimeType},
+        runtime::{RuntimeExecuteResponse, RuntimeType},
         session::{Session, SessionStatus},
     };
     use actix_web::{http::header, test, App};
