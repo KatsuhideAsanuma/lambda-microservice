@@ -87,9 +87,9 @@ run_test() {
   fi
 }
 
-if ! docker-compose ps | grep -q "controller"; then
+if ! docker compose ps | grep -q "controller"; then
   print_status "$YELLOW" "Starting services..."
-  docker-compose up -d
+  docker compose up -d
   wait_for_services
 else
   print_status "$GREEN" "Services are already running"
