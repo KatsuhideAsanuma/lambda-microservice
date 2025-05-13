@@ -212,6 +212,68 @@ CREATE INDEX idx_users_api_key_hash ON meta.users (api_key_hash);
 CREATE INDEX idx_users_is_active ON meta.users (is_active);
 ```
 
+### 3.7 sessions テーブル
+
+関数実行セッション情報を管理するテーブル（初期化リクエストとパラメータリクエストの2段階処理をサポート）
+
+```sql
+CREATE TABLE meta.sessions (
+    request_id VARCHAR(64) PRIMARY KEY,
+    language_title VARCHAR(128) NOT NULL,
+    user_id VARCHAR(128) REFERENCES meta.users(user_id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    last_executed_at TIMESTAMPTZ,
+    execution_count INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(16) NOT NULL DEFAULT 'active',
+    context JSONB,
+    metadata JSONB
+);
+
+-- インデックス
+CREATE INDEX idx_sessions_language_title ON meta.sessions (language_title);
+CREATE INDEX idx_sessions_user_id ON meta.sessions (user_id);
+CREATE INDEX idx_sessions_status ON meta.sessions (status);
+CREATE INDEX idx_sessions_expires_at ON meta.sessions (expires_at);
+
+-- 有効期限切れセッションクリーンアップ関数
+CREATE OR REPLACE FUNCTION meta.cleanup_expired_sessions()
+RETURNS INTEGER AS $$
+DECLARE
+    deleted_count INTEGER;
+BEGIN
+    DELETE FROM meta.sessions
+    WHERE expires_at < NOW()
+    AND status = 'active'
+    RETURNING COUNT(*) INTO deleted_count;
+    
+    UPDATE meta.sessions
+    SET status = 'expired'
+    WHERE expires_at < NOW()
+    AND status = 'active';
+    
+    RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql;
+
+-- セッション更新関数
+CREATE OR REPLACE FUNCTION meta.update_session_on_execute()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.last_executed_at = NOW();
+    NEW.execution_count = NEW.execution_count + 1;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- セッション更新トリガー
+CREATE TRIGGER update_session_on_execute
+BEFORE UPDATE ON meta.sessions
+FOR EACH ROW
+WHEN (NEW.execution_count > OLD.execution_count)
+EXECUTE FUNCTION meta.update_session_on_execute();
+```
+
 ## 4. ビュー定義
 
 ### 4.1 daily_usage_stats ビュー
