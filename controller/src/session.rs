@@ -479,35 +479,24 @@ mod tests {
             self
         }
 
-        async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, _key: &'a str) -> Result<Option<T>> {
-            let result = self.get_result.lock().await.clone()?;
-            match result {
-                Some(session) => Ok(Some(serde_json::from_value(serde_json::to_value(session).unwrap()).unwrap())),
-                None => Ok(None),
-            }
-        }
-
-        async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, _key: &'a str, _value: &'a T, _expiry_seconds: u64) -> Result<()> {
-            self.set_ex_result.lock().await.clone()
-        }
-
-        async fn del<'a>(&'a self, _key: &'a str) -> Result<()> {
-            self.del_result.lock().await.clone()
-        }
     }
 
 #[async_trait]
 impl RedisPoolTrait for MockRedisPool {
-    async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, key: &'a str) -> Result<Option<T>> {
-        self.get_value(key).await
+    async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, _key: &'a str) -> Result<Option<T>> {
+        let result = self.get_result.lock().await.clone()?;
+        match result {
+            Some(session) => Ok(Some(serde_json::from_value(serde_json::to_value(session).unwrap()).unwrap())),
+            None => Ok(None),
+        }
     }
 
-    async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, key: &'a str, value: &'a T, expiry_seconds: u64) -> Result<()> {
-        self.set_ex(key, value, expiry_seconds).await
+    async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, _key: &'a str, _value: &'a T, _expiry_seconds: u64) -> Result<()> {
+        self.set_ex_result.lock().await.clone()
     }
 
-    async fn del<'a>(&'a self, key: &'a str) -> Result<()> {
-        self.del(key).await
+    async fn del<'a>(&'a self, _key: &'a str) -> Result<()> {
+        self.del_result.lock().await.clone()
     }
 }
 
