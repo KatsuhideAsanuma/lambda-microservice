@@ -48,6 +48,9 @@ async fn main() -> std::io::Result<()> {
     info!("Runtime manager initialized");
 
     info!("Starting server at {}:{}", config.host, config.port);
+    
+    let bind_config = config.clone();
+    
     HttpServer::new(move || {
         let cors = Cors::default()
             .allow_any_origin()
@@ -66,7 +69,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(config.clone()))
             .configure(api::configure)
     })
-    .bind(format!("{}:{}", config.host, config.port))?
+    .bind(format!("{}:{}", bind_config.host, bind_config.port))?
     .run()
     .await
 }
