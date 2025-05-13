@@ -1,7 +1,7 @@
 
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum Error {
     #[error("Configuration error: {0}")]
     Config(String),
@@ -10,13 +10,13 @@ pub enum Error {
     Database(String),
 
     #[error("PostgreSQL error: {0}")]
-    Postgres(#[from] tokio_postgres::Error),
+    Postgres(String),
 
     #[error("Redis error: {0}")]
     Cache(String),
 
     #[error("Redis command error: {0}")]
-    RedisCmd(#[from] redis::RedisError),
+    RedisCmd(String),
 
     #[error("Session error: {0}")]
     Session(String),
@@ -49,10 +49,16 @@ pub enum Error {
     InternalServer(String),
 
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Io(err.to_string())
+    }
+}
 
 impl From<deadpool_postgres::PoolError> for Error {
     fn from(err: deadpool_postgres::PoolError) -> Self {
@@ -75,6 +81,18 @@ impl From<reqwest::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(err: serde_json::Error) -> Self {
         Error::Serialization(err.to_string())
+    }
+}
+
+impl From<tokio_postgres::Error> for Error {
+    fn from(err: tokio_postgres::Error) -> Self {
+        Error::Postgres(err.to_string())
+    }
+}
+
+impl From<redis::RedisError> for Error {
+    fn from(err: redis::RedisError) -> Self {
+        Error::RedisCmd(err.to_string())
     }
 }
 
@@ -109,13 +127,16 @@ mod tests {
         let compilation = Error::Compilation("Failed to compile".to_string());
         assert!(compilation.to_string().contains("Failed to compile"));
 
-        let io_error = Error::Io(io::Error::new(io::ErrorKind::Other, "IO error"));
+        let io_error = Error::Io("IO error".to_string());
         assert!(io_error.to_string().contains("IO error"));
     }
 
     #[test]
     fn test_error_from_reqwest() {
-        let reqwest_error = reqwest::Error::from(io::Error::new(io::ErrorKind::Other, "Network error"));
+        let reqwest_error = reqwest::Client::new()
+            .get("invalid-url")
+            .build()
+            .unwrap_err();
         let error = Error::from(reqwest_error);
         assert!(matches!(error, Error::External(_)));
     }
@@ -136,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_error_from_serde_json() {
-        let json_error = serde_json::Error::syntax(serde_json::error::ErrorCode::ExpectedSomeValue, 0, 0);
+        let json_error = serde_json::from_str::<serde_json::Value>("invalid json").unwrap_err();
         let error = Error::from(json_error);
         assert!(matches!(error, Error::Serialization(_)));
     }

@@ -1,20 +1,70 @@
 
 use crate::error::{Error, Result};
+use crate::session::DbPoolTrait;
+use async_trait::async_trait;
 use deadpool_postgres::{Config, Pool, PoolConfig, Runtime};
 use tokio_postgres::NoTls;
+use std::str::FromStr;
 
 #[derive(Clone)]
 pub struct PostgresPool {
     pool: Pool,
 }
 
+#[async_trait]
+impl DbPoolTrait for PostgresPool {
+    async fn execute(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
+        self.execute(query, params).await
+    }
+    
+    async fn query_opt(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<tokio_postgres::Row>> {
+        self.query_opt(query, params).await
+    }
+    
+    async fn query_one(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
+        self.query_one(query, params).await
+    }
+}
+
 impl PostgresPool {
     pub async fn new(database_url: &str) -> Result<Self> {
         let mut config = Config::new();
-        config.url = Some(database_url.to_string());
+        
+        let parts: Vec<&str> = database_url.split("://").collect();
+        if parts.len() == 2 {
+            let credentials_and_host: Vec<&str> = parts[1].split("@").collect();
+            if credentials_and_host.len() == 2 {
+                let credentials: Vec<&str> = credentials_and_host[0].split(":").collect();
+                if credentials.len() == 2 {
+                    config.user = Some(credentials[0].to_string());
+                    config.password = Some(credentials[1].to_string());
+                }
+                
+                let host_port_db: Vec<&str> = credentials_and_host[1].split("/").collect();
+                if host_port_db.len() >= 1 {
+                    let host_port: Vec<&str> = host_port_db[0].split(":").collect();
+                    if host_port.len() == 2 {
+                        config.host = Some(host_port[0].to_string());
+                        if let Ok(port) = host_port[1].parse::<u16>() {
+                            config.port = Some(port);
+                        }
+                    } else {
+                        config.host = Some(host_port_db[0].to_string());
+                    }
+                    
+                    if host_port_db.len() >= 2 {
+                        config.dbname = Some(host_port_db[1].to_string());
+                    }
+                }
+            }
+        } else {
+            return Err(Error::Database(format!("Failed to parse database URL: {}", database_url)));
+        }
+        
         config.pool = Some(PoolConfig::new(10));
 
-        let pool = config.create_pool(Some(Runtime::Tokio1), NoTls)?;
+        let pool = config.create_pool(Some(Runtime::Tokio1), NoTls)
+            .map_err(|e| Error::Database(format!("Failed to create pool: {}", e)))?;
 
         let client = pool.get().await?;
         client.execute("SELECT 1", &[]).await?;
@@ -26,22 +76,22 @@ impl PostgresPool {
         self.pool.get().await.map_err(Error::from)
     }
 
-    pub async fn execute<T>(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
+    pub async fn execute(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
         let client = self.get().await?;
         client.execute(query, params).await.map_err(Error::from)
     }
 
-    pub async fn query<T>(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
+    pub async fn query(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
         let client = self.get().await?;
         client.query(query, params).await.map_err(Error::from)
     }
 
-    pub async fn query_one<T>(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
+    pub async fn query_one(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
         let client = self.get().await?;
         client.query_one(query, params).await.map_err(Error::from)
     }
 
-    pub async fn query_opt<T>(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<tokio_postgres::Row>> {
+    pub async fn query_opt(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<tokio_postgres::Row>> {
         let client = self.get().await?;
         client.query_opt(query, params).await.map_err(Error::from)
     }
@@ -109,44 +159,72 @@ mod tests {
         }
     }
 
-    struct MockPostgresPool {
-        client: MockClient,
+    #[derive(Clone)]
+    pub struct MockPostgresPool {
+        execute_result: Arc<Mutex<Result<u64>>>,
+        query_opt_result: Arc<Mutex<Result<Option<Row>>>>,
+        query_one_result: Arc<Mutex<Result<Row>>>,
     }
 
     impl MockPostgresPool {
-        fn new(client: MockClient) -> Self {
-            Self { client }
+        pub fn new() -> Self {
+            Self {
+                execute_result: Arc::new(Mutex::new(Ok(1))),
+                query_opt_result: Arc::new(Mutex::new(Ok(None))),
+                query_one_result: Arc::new(Mutex::new(Err(Error::NotFound("No rows found".to_string())))),
+            }
         }
 
-        async fn get(&self) -> Result<MockClient> {
-            Ok(self.client.clone())
+        pub fn with_execute_result(mut self, result: Result<u64>) -> Self {
+            self.execute_result = Arc::new(Mutex::new(result));
+            self
         }
 
+        pub fn with_query_opt_result(mut self, result: Result<Option<Row>>) -> Self {
+            self.query_opt_result = Arc::new(Mutex::new(result));
+            self
+        }
+
+        pub fn with_query_one_result(mut self, result: Result<Row>) -> Self {
+            self.query_one_result = Arc::new(Mutex::new(result));
+            self
+        }
+
+        pub async fn execute(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
+            self.execute_result.lock().await.clone()
+        }
+
+        pub async fn query(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<Row>> {
+            Ok(Vec::new())
+        }
+
+        pub async fn query_one(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Row> {
+            self.query_one_result.lock().await.clone()
+        }
+
+        pub async fn query_opt(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<Row>> {
+            self.query_opt_result.lock().await.clone()
+        }
+    }
+    
+    #[async_trait]
+    impl DbPoolTrait for MockPostgresPool {
         async fn execute(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
-            let client = self.get().await?;
-            client.execute(query, params).await
+            self.execute(query, params).await
         }
-
-        async fn query(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<Row>> {
-            let client = self.get().await?;
-            client.query(query, params).await
-        }
-
-        async fn query_one(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Row> {
-            let client = self.get().await?;
-            client.query_one(query, params).await
-        }
-
+        
         async fn query_opt(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<Row>> {
-            let client = self.get().await?;
-            client.query_opt(query, params).await
+            self.query_opt(query, params).await
+        }
+        
+        async fn query_one(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Row> {
+            self.query_one(query, params).await
         }
     }
 
     #[tokio::test]
     async fn test_execute_success() {
-        let client = MockClient::new().with_execute_result(Ok(5));
-        let pool = MockPostgresPool::new(client);
+        let pool = MockPostgresPool::new().with_execute_result(Ok(5));
 
         let result = pool.execute("INSERT INTO test VALUES ($1)", &[&"test_value"]).await;
         assert!(result.is_ok());
@@ -155,8 +233,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_error() {
-        let client = MockClient::new().with_execute_result(Err(Error::Database("Database error".to_string())));
-        let pool = MockPostgresPool::new(client);
+        let pool = MockPostgresPool::new().with_execute_result(Err(Error::Database("Database error".to_string())));
 
         let result = pool.execute("INSERT INTO test VALUES ($1)", &[&"test_value"]).await;
         assert!(result.is_err());
@@ -167,8 +244,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_success() {
-        let client = MockClient::new().with_query_result(Ok(Vec::new()));
-        let pool = MockPostgresPool::new(client);
+        let pool = MockPostgresPool::new();
 
         let result = pool.query("SELECT * FROM test", &[]).await;
         assert!(result.is_ok());
@@ -176,8 +252,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_one_not_found() {
-        let client = MockClient::new().with_query_one_result(Err(Error::NotFound("No rows found".to_string())));
-        let pool = MockPostgresPool::new(client);
+        let pool = MockPostgresPool::new().with_query_one_result(Err(Error::NotFound("No rows found".to_string())));
 
         let result = pool.query_one("SELECT * FROM test WHERE id = $1", &[&1]).await;
         assert!(result.is_err());
@@ -188,8 +263,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_opt_none() {
-        let client = MockClient::new().with_query_opt_result(Ok(None));
-        let pool = MockPostgresPool::new(client);
+        let pool = MockPostgresPool::new().with_query_opt_result(Ok(None));
 
         let result = pool.query_opt("SELECT * FROM test WHERE id = $1", &[&1]).await;
         assert!(result.is_ok());

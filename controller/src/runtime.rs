@@ -1,8 +1,8 @@
 
 use crate::{
-    database::PostgresPool,
+    database::{PostgresPool, MockPostgresPool},
     error::{Error, Result},
-    session::Session,
+    session::{DbPoolTrait, Session},
 };
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
@@ -33,7 +33,7 @@ impl RuntimeType {
         }
     }
 
-    pub fn get_runtime_url(&self, config: &RuntimeConfig) -> &str {
+    pub fn get_runtime_url<'a>(&self, config: &'a RuntimeConfig) -> &'a str {
         match self {
             Self::NodeJs => &config.nodejs_runtime_url,
             Self::Python => &config.python_runtime_url,
@@ -67,14 +67,14 @@ pub struct RuntimeExecuteResponse {
     pub memory_usage_bytes: Option<u64>,
 }
 
-pub struct RuntimeManager {
+pub struct RuntimeManager<D: DbPoolTrait> {
     config: RuntimeConfig,
-    db_pool: PostgresPool,
+    db_pool: D,
     wasm_engine: Engine,
 }
 
-impl RuntimeManager {
-    pub async fn new(config: &crate::config::RuntimeConfig, db_pool: PostgresPool) -> Result<Self> {
+impl<D: DbPoolTrait> RuntimeManager<D> {
+    pub async fn new(config: &crate::config::RuntimeConfig, db_pool: D) -> Result<Self> {
         let runtime_config = RuntimeConfig {
             nodejs_runtime_url: config.nodejs_runtime_url.clone(),
             python_runtime_url: config.python_runtime_url.clone(),
@@ -210,6 +210,11 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
+    #[async_trait::async_trait]
+    pub trait HttpClient {
+        async fn post(&self, url: String) -> MockReqwestRequestBuilder;
+    }
+
     mock! {
         pub ReqwestClient {}
         impl Clone for ReqwestClient {
@@ -217,37 +222,42 @@ mod tests {
         }
         
         #[async_trait::async_trait]
-        trait HttpClient {
+        impl HttpClient for ReqwestClient {
             async fn post(&self, url: String) -> MockReqwestRequestBuilder;
         }
+    }
+
+    #[async_trait::async_trait]
+    pub trait RequestBuilder {
+        fn json<T: Serialize + Send + 'static>(&self, json: T) -> Self;
+        async fn send(&self) -> Result<MockReqwestResponse>;
     }
 
     mock! {
         pub ReqwestRequestBuilder {}
         
         #[async_trait::async_trait]
-        trait RequestBuilder {
+        impl RequestBuilder for ReqwestRequestBuilder {
             fn json<T: Serialize + Send + 'static>(&self, json: T) -> Self;
             async fn send(&self) -> Result<MockReqwestResponse>;
         }
+    }
+
+    #[async_trait::async_trait]
+    pub trait Response {
+        async fn json<T: serde::de::DeserializeOwned + 'static>(&self) -> Result<T>;
     }
 
     mock! {
         pub ReqwestResponse {}
         
         #[async_trait::async_trait]
-        trait Response {
-            async fn json<T: serde::de::DeserializeOwned>(&self) -> Result<T>;
+        impl Response for ReqwestResponse {
+            async fn json<T: serde::de::DeserializeOwned + 'static>(&self) -> Result<T>;
         }
     }
 
-    struct MockPostgresPool {}
-
-    impl MockPostgresPool {
-        fn new() -> Self {
-            Self {}
-        }
-    }
+    
 
     fn create_test_session(language_title: &str, script_content: Option<&str>) -> Session {
         let now = Utc::now();
@@ -273,7 +283,7 @@ mod tests {
         }
     }
 
-    fn create_test_runtime_manager() -> RuntimeManager {
+    fn create_test_runtime_manager() -> RuntimeManager<MockPostgresPool> {
         let config = RuntimeConfig {
             nodejs_runtime_url: "http://localhost:8081".to_string(),
             python_runtime_url: "http://localhost:8082".to_string(),

@@ -1,8 +1,10 @@
 
 use crate::error::{Error, Result};
+use crate::session::RedisPoolTrait;
 use deadpool_redis::{Config, Pool, Runtime};
 use redis::AsyncCommands;
 use std::time::Duration;
+use async_trait::async_trait;
 
 #[derive(Clone)]
 pub struct RedisPool {
@@ -14,7 +16,8 @@ impl RedisPool {
         let mut config = Config::from_url(redis_url);
         config.pool = Some(deadpool_redis::PoolConfig::new(10));
 
-        let pool = config.create_pool(Some(Runtime::Tokio1))?;
+        let pool = config.create_pool(Some(Runtime::Tokio1))
+            .map_err(|e| Error::Cache(format!("Failed to create Redis pool: {}", e)))?;
 
         Ok(Self { pool })
     }
@@ -23,13 +26,13 @@ impl RedisPool {
         self.pool.get().await.map_err(Error::from)
     }
 
-    pub async fn set_ex<T: serde::Serialize>(&self, key: &str, value: &T, expiry_seconds: u64) -> Result<()> {
+    pub async fn set_ex<T: serde::Serialize + Send + Sync>(&self, key: &str, value: &T, expiry_seconds: u64) -> Result<()> {
         let mut conn = self.get().await?;
         let serialized = serde_json::to_string(value)?;
-        conn.set_ex(key, serialized, expiry_seconds).await.map_err(Error::from)
+        conn.set_ex(key, serialized, expiry_seconds.try_into().unwrap()).await.map_err(Error::from)
     }
 
-    pub async fn get<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
+    pub async fn get_value<T: serde::de::DeserializeOwned + Send + Sync>(&self, key: &str) -> Result<Option<T>> {
         let mut conn = self.get().await?;
         let result: Option<String> = conn.get(key).await.map_err(Error::from)?;
         
@@ -58,7 +61,7 @@ impl RedisPool {
             .arg(serialized)
             .arg("NX")
             .arg("EX")
-            .arg(expiry_seconds)
+            .arg(expiry_seconds.to_string()) // Convert u64 to String to ensure type compatibility
             .query_async(&mut conn)
             .await
             .map_err(Error::from)?;
@@ -67,7 +70,7 @@ impl RedisPool {
 
     pub async fn expire(&self, key: &str, expiry_seconds: u64) -> Result<bool> {
         let mut conn = self.get().await?;
-        let result: bool = conn.expire(key, expiry_seconds).await.map_err(Error::from)?;
+        let result: bool = conn.expire(key, expiry_seconds.try_into().unwrap()).await.map_err(Error::from)?;
         Ok(result)
     }
 }
@@ -132,7 +135,7 @@ mod tests {
 
         async fn expire(&mut self, key: &str, expiry_seconds: u64) -> Result<bool> {
             let mut storage = self.storage.lock().await;
-            if let Some((value, expiry)) = storage.get_mut(key) {
+            if let Some((_value, expiry)) = storage.get_mut(key) {
                 *expiry = Some(expiry_seconds);
                 Ok(true)
             } else {
@@ -141,73 +144,104 @@ mod tests {
         }
     }
 
-    struct MockRedisPool {
-        connection: MockRedisConnection,
+    #[derive(Clone)]
+    pub struct MockRedisPool {
+        get_result: Arc<Mutex<Result<Option<String>>>>,
+        set_ex_result: Arc<Mutex<Result<()>>>,
+        del_result: Arc<Mutex<Result<()>>>,
+        exists_result: Arc<Mutex<Result<bool>>>,
+        set_nx_ex_result: Arc<Mutex<Result<bool>>>,
+        expire_result: Arc<Mutex<Result<bool>>>,
     }
 
     impl MockRedisPool {
         fn new() -> Self {
             Self {
-                connection: MockRedisConnection::new(),
+                get_result: Arc::new(Mutex::new(Ok(None))),
+                set_ex_result: Arc::new(Mutex::new(Ok(()))),
+                del_result: Arc::new(Mutex::new(Ok(()))),
+                exists_result: Arc::new(Mutex::new(Ok(false))),
+                set_nx_ex_result: Arc::new(Mutex::new(Ok(true))),
+                expire_result: Arc::new(Mutex::new(Ok(true))),
             }
         }
 
-        async fn get(&self) -> Result<MockRedisConnection> {
-            Ok(self.connection.clone())
+        fn with_get_result(mut self, result: Result<Option<String>>) -> Self {
+            self.get_result = Arc::new(Mutex::new(result));
+            self
         }
 
-        async fn set_ex<T: Serialize>(&self, key: &str, value: &T, expiry_seconds: u64) -> Result<()> {
-            let mut conn = self.get().await?;
-            let serialized = serde_json::to_string(value)?;
-            conn.set_ex(key, serialized, expiry_seconds).await
+        fn with_set_ex_result(mut self, result: Result<()>) -> Self {
+            self.set_ex_result = Arc::new(Mutex::new(result));
+            self
         }
 
-        async fn get<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
-            let mut conn = self.get().await?;
-            let result = conn.get(key).await?;
-            
+        fn with_del_result(mut self, result: Result<()>) -> Self {
+            self.del_result = Arc::new(Mutex::new(result));
+            self
+        }
+
+        fn with_exists_result(mut self, result: Result<bool>) -> Self {
+            self.exists_result = Arc::new(Mutex::new(result));
+            self
+        }
+
+        fn with_set_nx_ex_result(mut self, result: Result<bool>) -> Self {
+            self.set_nx_ex_result = Arc::new(Mutex::new(result));
+            self
+        }
+
+        fn with_expire_result(mut self, result: Result<bool>) -> Self {
+            self.expire_result = Arc::new(Mutex::new(result));
+            self
+        }
+
+        async fn get_value<T: serde::de::DeserializeOwned + Send + Sync>(&self, _key: &str) -> Result<Option<T>> {
+            let result = self.get_result.lock().await.clone()?;
             match result {
                 Some(value) => Ok(Some(serde_json::from_str(&value)?)),
                 None => Ok(None),
             }
         }
 
-        async fn del(&self, key: &str) -> Result<()> {
-            let mut conn = self.get().await?;
-            conn.del(key).await
+        async fn set_ex<T: Serialize + Send + Sync>(&self, _key: &str, _value: &T, _expiry_seconds: u64) -> Result<()> {
+            self.set_ex_result.lock().await.clone()
         }
 
-        async fn exists(&self, key: &str) -> Result<bool> {
-            let mut conn = self.get().await?;
-            let result = conn.exists(key).await?;
-            Ok(result > 0)
+        async fn del(&self, _key: &str) -> Result<()> {
+            self.del_result.lock().await.clone()
         }
 
-        async fn set_nx_ex<T: Serialize>(&self, key: &str, value: &T, expiry_seconds: u64) -> Result<bool> {
-            let mut conn = self.get().await?;
-            let serialized = serde_json::to_string(value)?;
-            conn.set_nx_ex(key, serialized, expiry_seconds).await
+        async fn exists(&self, _key: &str) -> Result<bool> {
+            self.exists_result.lock().await.clone()
         }
 
-        async fn expire(&self, key: &str, expiry_seconds: u64) -> Result<bool> {
-            let mut conn = self.get().await?;
-            conn.expire(key, expiry_seconds).await
+        async fn set_nx_ex<T: Serialize>(&self, _key: &str, _value: &T, _expiry_seconds: u64) -> Result<bool> {
+            self.set_nx_ex_result.lock().await.clone()
+        }
+
+        async fn expire(&self, _key: &str, _expiry_seconds: u64) -> Result<bool> {
+            self.expire_result.lock().await.clone()
         }
     }
 
     #[tokio::test]
     async fn test_set_ex_and_get() {
-        let pool = MockRedisPool::new();
         let test_data = TestData {
             id: 1,
             name: "Test".to_string(),
             value: 42.5,
         };
 
+        let serialized = serde_json::to_string(&test_data).unwrap();
+        let pool = MockRedisPool::new()
+            .with_set_ex_result(Ok(()))
+            .with_get_result(Ok(Some(serialized)));
+
         let result = pool.set_ex("test_key", &test_data, 60).await;
         assert!(result.is_ok());
 
-        let retrieved: Result<Option<TestData>> = pool.get("test_key").await;
+        let retrieved: Result<Option<TestData>> = pool.get_value("test_key").await;
         assert!(retrieved.is_ok());
         
         let data = retrieved.unwrap();
@@ -217,23 +251,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_nonexistent_key() {
-        let pool = MockRedisPool::new();
+        let pool = MockRedisPool::new().with_get_result(Ok(None));
         
-        let result: Result<Option<TestData>> = pool.get("nonexistent_key").await;
+        let result: Result<Option<TestData>> = pool.get_value("nonexistent_key").await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn test_del() {
-        let pool = MockRedisPool::new();
         let test_data = TestData {
             id: 2,
             name: "Delete Test".to_string(),
             value: 10.0,
         };
 
-        let _ = pool.set_ex("delete_key", &test_data, 60).await;
+        let pool = MockRedisPool::new()
+            .with_set_ex_result(Ok(()))
+            .with_exists_result(Ok(true))
+            .with_del_result(Ok(()));
+
+        let result = pool.set_ex("delete_key", &test_data, 60).await;
+        assert!(result.is_ok());
         
         let exists = pool.exists("delete_key").await;
         assert!(exists.is_ok());
@@ -242,6 +281,7 @@ mod tests {
         let result = pool.del("delete_key").await;
         assert!(result.is_ok());
         
+        let pool = MockRedisPool::new().with_exists_result(Ok(false));
         let exists = pool.exists("delete_key").await;
         assert!(exists.is_ok());
         assert!(!exists.unwrap());
@@ -249,7 +289,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_exists() {
-        let pool = MockRedisPool::new();
+        let pool = MockRedisPool::new().with_exists_result(Ok(false));
         
         let exists = pool.exists("exists_key").await;
         assert!(exists.is_ok());
@@ -260,7 +300,13 @@ mod tests {
             name: "Exists Test".to_string(),
             value: 30.0,
         };
-        let _ = pool.set_ex("exists_key", &test_data, 60).await;
+        
+        let pool = MockRedisPool::new()
+            .with_set_ex_result(Ok(()))
+            .with_exists_result(Ok(true));
+            
+        let result = pool.set_ex("exists_key", &test_data, 60).await;
+        assert!(result.is_ok());
         
         let exists = pool.exists("exists_key").await;
         assert!(exists.is_ok());
@@ -269,7 +315,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_nx_ex() {
-        let pool = MockRedisPool::new();
         let test_data1 = TestData {
             id: 4,
             name: "First".to_string(),
@@ -281,37 +326,80 @@ mod tests {
             value: 50.0,
         };
         
+        let serialized = serde_json::to_string(&test_data1).unwrap();
+        let pool = MockRedisPool::new()
+            .with_set_nx_ex_result(Ok(true))
+            .with_get_result(Ok(Some(serialized)));
+        
         let result = pool.set_nx_ex("nx_key", &test_data1, 60).await;
         assert!(result.is_ok());
         assert!(result.unwrap());
         
+        let pool = MockRedisPool::new().with_set_nx_ex_result(Ok(false));
         let result = pool.set_nx_ex("nx_key", &test_data2, 60).await;
         assert!(result.is_ok());
         assert!(!result.unwrap());
         
-        let retrieved: Result<Option<TestData>> = pool.get("nx_key").await;
+        let serialized = serde_json::to_string(&test_data1).unwrap();
+        let pool = MockRedisPool::new().with_get_result(Ok(Some(serialized)));
+        let retrieved: Result<Option<TestData>> = pool.get_value("nx_key").await;
         assert!(retrieved.is_ok());
         assert_eq!(retrieved.unwrap().unwrap(), test_data1);
     }
 
     #[tokio::test]
     async fn test_expire() {
-        let pool = MockRedisPool::new();
         let test_data = TestData {
             id: 6,
             name: "Expire Test".to_string(),
             value: 60.0,
         };
         
-        let _ = pool.set_ex("expire_key", &test_data, 30).await;
+        let pool = MockRedisPool::new()
+            .with_set_ex_result(Ok(()))
+            .with_expire_result(Ok(true));
+        
+        let result = pool.set_ex("expire_key", &test_data, 30).await;
+        assert!(result.is_ok());
         
         let result = pool.expire("expire_key", 120).await;
         assert!(result.is_ok());
         assert!(result.unwrap());
         
+        let pool = MockRedisPool::new().with_expire_result(Ok(false));
         let result = pool.expire("nonexistent_key", 60).await;
         assert!(result.is_ok());
         assert!(!result.unwrap());
+    }
+
+    #[async_trait]
+    impl RedisPoolTrait for MockRedisPool {
+        async fn get_value<T: serde::de::DeserializeOwned + Send + Sync>(&self, key: &str) -> Result<Option<T>> {
+            self.get_value(key).await
+        }
+
+        async fn set_ex<T: serde::Serialize + Send + Sync>(&self, key: &str, value: &T, expiry_seconds: u64) -> Result<()> {
+            self.set_ex(key, value, expiry_seconds).await
+        }
+
+        async fn del(&self, key: &str) -> Result<()> {
+            self.del(key).await
+        }
+    }
+
+    #[async_trait]
+    impl RedisPoolTrait for RedisPool {
+        async fn get_value<T: serde::de::DeserializeOwned + Send + Sync>(&self, key: &str) -> Result<Option<T>> {
+            self.get_value(key).await
+        }
+
+        async fn set_ex<T: serde::Serialize + Send + Sync>(&self, key: &str, value: &T, expiry_seconds: u64) -> Result<()> {
+            self.set_ex(key, value, expiry_seconds).await
+        }
+
+        async fn del(&self, key: &str) -> Result<()> {
+            self.del(key).await
+        }
     }
 
     #[tokio::test]
@@ -336,7 +424,7 @@ mod tests {
         let result = pool.set_ex("integration_test_key", &test_data, 60).await;
         assert!(result.is_ok());
         
-        let retrieved: Result<Option<TestData>> = pool.get("integration_test_key").await;
+        let retrieved: Result<Option<TestData>> = pool.get_value("integration_test_key").await;
         assert!(retrieved.is_ok());
         assert_eq!(retrieved.unwrap().unwrap(), test_data);
         
