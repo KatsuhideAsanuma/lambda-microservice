@@ -234,11 +234,19 @@ async fn get_function_list() -> HttpResponse {
     })
 }
 
+#[get("/health")]
+async fn health() -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "ok"
+    }))
+}
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(initialize)
         .service(execute)
         .service(get_session_state)
-        .service(get_function_list);
+        .service(get_function_list)
+        .service(health);
 }
 
 use async_trait::async_trait;
