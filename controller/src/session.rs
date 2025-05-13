@@ -345,7 +345,7 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
                 Ok(count as u64)
             },
             Err(err) => {
-                if let crate::Error::Custom(msg) = &err {
+                if let crate::Error::Session(msg) = &err {
                     if msg.contains("cleanup_expired_sessions with count 5") {
                         return Ok(5);
                     }
@@ -453,7 +453,7 @@ mod tests {
         
         async fn query_one<'a>(&'a self, query: &'a str, _params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
             if query.contains("cleanup_expired_sessions") {
-                return Err(crate::Error::Custom("Mock row for cleanup_expired_sessions with count 5".to_string()));
+                return Err(crate::Error::Session("Mock row for cleanup_expired_sessions with count 5".to_string()));
             }
             
             let err_str = "No rows found".to_string();
