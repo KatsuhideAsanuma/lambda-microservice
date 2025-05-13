@@ -1,14 +1,34 @@
 
 use crate::error::{Error, Result};
-use crate::session::RedisPoolTrait;
 use deadpool_redis::{Config, Pool, Runtime};
 use redis::AsyncCommands;
-use std::time::Duration;
 use async_trait::async_trait;
+
+#[async_trait]
+pub trait RedisPoolTrait: Send + Sync + 'static {
+    async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, key: &'a str) -> Result<Option<T>>;
+    async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, key: &'a str, value: &'a T, expiry_seconds: u64) -> Result<()>;
+    async fn del<'a>(&'a self, key: &'a str) -> Result<()>;
+}
 
 #[derive(Clone)]
 pub struct RedisPool {
     pool: Pool,
+}
+
+#[async_trait]
+impl RedisPoolTrait for RedisPool {
+    async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, key: &'a str) -> Result<Option<T>> {
+        self.get_value(key).await
+    }
+
+    async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, key: &'a str, value: &'a T, expiry_seconds: u64) -> Result<()> {
+        self.set_ex(key, value, expiry_seconds).await
+    }
+
+    async fn del<'a>(&'a self, key: &'a str) -> Result<()> {
+        self.del(key).await
+    }
 }
 
 impl RedisPool {
@@ -75,6 +95,7 @@ impl RedisPool {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,39 +111,46 @@ mod tests {
     }
 
     #[derive(Clone)]
+    #[allow(dead_code)]
     struct MockRedisConnection {
         storage: Arc<Mutex<std::collections::HashMap<String, (String, Option<u64>)>>>,
     }
 
     impl MockRedisConnection {
+        #[allow(dead_code)]
         fn new() -> Self {
             Self {
                 storage: Arc::new(Mutex::new(std::collections::HashMap::new())),
             }
         }
 
+        #[allow(dead_code)]
         async fn set_ex(&mut self, key: &str, value: String, expiry_seconds: u64) -> Result<()> {
             let mut storage = self.storage.lock().await;
             storage.insert(key.to_string(), (value, Some(expiry_seconds)));
             Ok(())
         }
 
+        #[allow(dead_code)]
         async fn get(&mut self, key: &str) -> Result<Option<String>> {
             let storage = self.storage.lock().await;
             Ok(storage.get(key).map(|(value, _)| value.clone()))
         }
 
+        #[allow(dead_code)]
         async fn del(&mut self, key: &str) -> Result<()> {
             let mut storage = self.storage.lock().await;
             storage.remove(key);
             Ok(())
         }
 
+        #[allow(dead_code)]
         async fn exists(&mut self, key: &str) -> Result<i64> {
             let storage = self.storage.lock().await;
             Ok(if storage.contains_key(key) { 1 } else { 0 })
         }
 
+        #[allow(dead_code)]
         async fn set_nx_ex(&mut self, key: &str, value: String, expiry_seconds: u64) -> Result<bool> {
             let mut storage = self.storage.lock().await;
             if storage.contains_key(key) {
@@ -133,6 +161,7 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)]
         async fn expire(&mut self, key: &str, expiry_seconds: u64) -> Result<bool> {
             let mut storage = self.storage.lock().await;
             if let Some((_value, expiry)) = storage.get_mut(key) {
@@ -374,33 +403,19 @@ mod tests {
 
     #[async_trait]
     impl RedisPoolTrait for MockRedisPool {
-        async fn get_value<T: serde::de::DeserializeOwned + Send + Sync>(&self, key: &str) -> Result<Option<T>> {
+        async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, key: &'a str) -> Result<Option<T>> {
             self.get_value(key).await
         }
 
-        async fn set_ex<T: serde::Serialize + Send + Sync>(&self, key: &str, value: &T, expiry_seconds: u64) -> Result<()> {
+        async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, key: &'a str, value: &'a T, expiry_seconds: u64) -> Result<()> {
             self.set_ex(key, value, expiry_seconds).await
         }
 
-        async fn del(&self, key: &str) -> Result<()> {
+        async fn del<'a>(&'a self, key: &'a str) -> Result<()> {
             self.del(key).await
         }
     }
 
-    #[async_trait]
-    impl RedisPoolTrait for RedisPool {
-        async fn get_value<T: serde::de::DeserializeOwned + Send + Sync>(&self, key: &str) -> Result<Option<T>> {
-            self.get_value(key).await
-        }
-
-        async fn set_ex<T: serde::Serialize + Send + Sync>(&self, key: &str, value: &T, expiry_seconds: u64) -> Result<()> {
-            self.set_ex(key, value, expiry_seconds).await
-        }
-
-        async fn del(&self, key: &str) -> Result<()> {
-            self.del(key).await
-        }
-    }
 
     #[tokio::test]
     #[ignore]

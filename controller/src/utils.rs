@@ -45,7 +45,7 @@ pub fn truncate_string(s: &str, max_length: usize) -> String {
     if s.len() <= max_length {
         s.to_string()
     } else {
-        format!("{}...", &s[0..max_length - 3])
+        format!("{}...", &s[0..max_length - 3].trim_end())
     }
 }
 

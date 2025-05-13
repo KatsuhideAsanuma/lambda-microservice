@@ -4,7 +4,6 @@ use crate::session::DbPoolTrait;
 use async_trait::async_trait;
 use deadpool_postgres::{Config, Pool, PoolConfig, Runtime};
 use tokio_postgres::NoTls;
-use std::str::FromStr;
 
 #[derive(Clone)]
 pub struct PostgresPool {
@@ -13,15 +12,15 @@ pub struct PostgresPool {
 
 #[async_trait]
 impl DbPoolTrait for PostgresPool {
-    async fn execute(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
+    async fn execute<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
         self.execute(query, params).await
     }
     
-    async fn query_opt(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<tokio_postgres::Row>> {
+    async fn query_opt<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<tokio_postgres::Row>> {
         self.query_opt(query, params).await
     }
     
-    async fn query_one(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
+    async fn query_one<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
         self.query_one(query, params).await
     }
 }
@@ -98,13 +97,14 @@ impl PostgresPool {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use std::sync::Arc;
     use tokio::sync::Mutex;
     use tokio_postgres::Row;
 
     #[derive(Clone)]
+    #[allow(dead_code)]
     struct MockClient {
         execute_result: Arc<Mutex<Result<u64>>>,
         query_result: Arc<Mutex<Result<Vec<Row>>>>,
@@ -113,6 +113,7 @@ mod tests {
     }
 
     impl MockClient {
+        #[allow(dead_code)]
         fn new() -> Self {
             Self {
                 execute_result: Arc::new(Mutex::new(Ok(1))),
@@ -122,38 +123,46 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)]
         fn with_execute_result(mut self, result: Result<u64>) -> Self {
             self.execute_result = Arc::new(Mutex::new(result));
             self
         }
 
+        #[allow(dead_code)]
         fn with_query_result(mut self, result: Result<Vec<Row>>) -> Self {
             self.query_result = Arc::new(Mutex::new(result));
             self
         }
 
+        #[allow(dead_code)]
         fn with_query_one_result(mut self, result: Result<Row>) -> Self {
             self.query_one_result = Arc::new(Mutex::new(result));
             self
         }
 
+        #[allow(dead_code)]
         fn with_query_opt_result(mut self, result: Result<Option<Row>>) -> Self {
             self.query_opt_result = Arc::new(Mutex::new(result));
             self
         }
 
+        #[allow(dead_code)]
         async fn execute(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
             self.execute_result.lock().await.clone()
         }
 
+        #[allow(dead_code)]
         async fn query(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<Row>> {
             self.query_result.lock().await.clone()
         }
 
+        #[allow(dead_code)]
         async fn query_one(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Row> {
             self.query_one_result.lock().await.clone()
         }
 
+        #[allow(dead_code)]
         async fn query_opt(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<Row>> {
             self.query_opt_result.lock().await.clone()
         }
@@ -209,15 +218,15 @@ mod tests {
     
     #[async_trait]
     impl DbPoolTrait for MockPostgresPool {
-        async fn execute(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
+        async fn execute<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
             self.execute(query, params).await
         }
         
-        async fn query_opt(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<Row>> {
+        async fn query_opt<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<Row>> {
             self.query_opt(query, params).await
         }
         
-        async fn query_one(&self, query: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Row> {
+        async fn query_one<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Row> {
             self.query_one(query, params).await
         }
     }

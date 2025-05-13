@@ -1,13 +1,17 @@
 
 use crate::{
-    database::{PostgresPool, MockPostgresPool},
+    api::RuntimeManagerTrait,
     error::{Error, Result},
     session::{DbPoolTrait, Session},
 };
+
+#[cfg(test)]
+use crate::database::tests::MockPostgresPool;
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 use tokio::time::timeout;
-use wasmtime::{Engine, Instance, Module, Store};
+use wasmtime::Engine;
+use async_trait::async_trait;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -69,7 +73,9 @@ pub struct RuntimeExecuteResponse {
 
 pub struct RuntimeManager<D: DbPoolTrait> {
     config: RuntimeConfig,
+    #[allow(dead_code)]
     db_pool: D,
+    #[allow(dead_code)]
     wasm_engine: Engine,
 }
 
@@ -92,10 +98,13 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             wasm_engine,
         })
     }
+}
 
-    pub async fn execute(
-        &self,
-        session: &Session,
+#[async_trait]
+impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
+    async fn execute<'a>(
+        &'a self,
+        session: &'a Session,
         params: serde_json::Value,
     ) -> Result<RuntimeExecuteResponse> {
         let runtime_type = RuntimeType::from_language_title(&session.language_title)?;
@@ -122,9 +131,9 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
         }
     }
 
-    async fn compile_rust_script(&self, session: &Session) -> Result<Vec<u8>> {
+    async fn compile_rust_script<'a>(&'a self, session: &'a Session) -> Result<Vec<u8>> {
 
-        let script_content = session
+        let _script_content = session
             .script_content
             .as_ref()
             .ok_or_else(|| Error::BadRequest("Script content is required".to_string()))?;
@@ -136,13 +145,13 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
         ])
     }
 
-    async fn execute_wasm(
-        &self,
-        session: &Session,
+    async fn execute_wasm<'a>(
+        &'a self,
+        session: &'a Session,
         params: serde_json::Value,
     ) -> Result<RuntimeExecuteResponse> {
 
-        let compiled_artifact = session
+        let _compiled_artifact = session
             .compiled_artifact
             .as_ref()
             .ok_or_else(|| Error::BadRequest("Compiled artifact is required".to_string()))?;
@@ -159,10 +168,10 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
         })
     }
 
-    async fn execute_in_container(
-        &self,
+    async fn execute_in_container<'a>(
+        &'a self,
         runtime_type: RuntimeType,
-        session: &Session,
+        session: &'a Session,
         params: serde_json::Value,
     ) -> Result<RuntimeExecuteResponse> {
         let runtime_url = runtime_type.get_runtime_url(&self.config);
@@ -194,7 +203,7 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
     }
 
     #[cfg(test)]
-    pub fn get_config(&self) -> &RuntimeConfig {
+    fn get_config(&self) -> &RuntimeConfig {
         &self.config
     }
 }
@@ -203,15 +212,14 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
 mod tests {
     use super::*;
     use crate::session::{Session, SessionStatus};
-    use chrono::{DateTime, Duration as ChronoDuration, Utc};
+    use chrono::{Duration as ChronoDuration, Utc};
     use mockall::predicate::*;
     use mockall::*;
     use serde_json::json;
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
 
-    #[async_trait::async_trait]
+    #[async_trait]
     pub trait HttpClient {
+        #[allow(dead_code)]
         async fn post(&self, url: String) -> MockReqwestRequestBuilder;
     }
 
@@ -221,37 +229,40 @@ mod tests {
             fn clone(&self) -> Self;
         }
         
-        #[async_trait::async_trait]
+        #[async_trait]
         impl HttpClient for ReqwestClient {
             async fn post(&self, url: String) -> MockReqwestRequestBuilder;
         }
     }
 
-    #[async_trait::async_trait]
+    #[async_trait]
     pub trait RequestBuilder {
+        #[allow(dead_code)]
         fn json<T: Serialize + Send + 'static>(&self, json: T) -> Self;
+        #[allow(dead_code)]
         async fn send(&self) -> Result<MockReqwestResponse>;
     }
 
     mock! {
         pub ReqwestRequestBuilder {}
         
-        #[async_trait::async_trait]
+        #[async_trait]
         impl RequestBuilder for ReqwestRequestBuilder {
             fn json<T: Serialize + Send + 'static>(&self, json: T) -> Self;
             async fn send(&self) -> Result<MockReqwestResponse>;
         }
     }
 
-    #[async_trait::async_trait]
+    #[async_trait]
     pub trait Response {
+        #[allow(dead_code)]
         async fn json<T: serde::de::DeserializeOwned + 'static>(&self) -> Result<T>;
     }
 
     mock! {
         pub ReqwestResponse {}
         
-        #[async_trait::async_trait]
+        #[async_trait]
         impl Response for ReqwestResponse {
             async fn json<T: serde::de::DeserializeOwned + 'static>(&self) -> Result<T>;
         }
@@ -394,8 +405,48 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_execute_in_container() {
+        let runtime_manager = create_test_runtime_manager();
+        
+        let session = create_test_session("nodejs-test", Some("function test() { return 42; }"));
+        let params = json!({"input": 42});
+        
+        let client = reqwest::Client::new();
+        let response = client.post(format!("{}/execute", "http://localhost:8081"))
+            .json(&RuntimeExecuteRequest {
+                request_id: session.request_id.clone(),
+                params: params.clone(),
+                context: session.context.clone(),
+                script_content: session.script_content.clone(),
+            })
+            .send()
+            .await;
+            
+        if response.is_err() {
+            let result = runtime_manager.execute_in_container(
+                RuntimeType::NodeJs,
+                &session,
+                params.clone()
+            ).await;
+            
+            assert!(result.is_err());
+            match result {
+                Err(Error::External(_)) => {
+                }
+                _ => panic!("Expected External error"),
+            }
+        } else {
+            let result = runtime_manager.execute_in_container(
+                RuntimeType::NodeJs,
+                &session,
+                params.clone()
+            ).await;
+            
+            if let Ok(response) = result {
+                assert!(response.execution_time_ms > 0);
+                assert!(response.result.is_object());
+            }
+        }
     }
 
     #[tokio::test]

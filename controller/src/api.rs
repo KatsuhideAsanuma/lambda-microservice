@@ -1,9 +1,9 @@
 
 use crate::{
-    config::Config,
-    error::{Error, Result},
-    runtime::RuntimeManager,
-    session::SessionManager,
+    config::{Config, RuntimeConfig},
+    error::{Result},
+    runtime::{RuntimeExecuteResponse, RuntimeType},
+    session::{Session},
 };
 use actix_web::{
     get, post,
@@ -69,7 +69,7 @@ pub struct FunctionInfo {
 #[post("/api/v1/initialize")]
 async fn initialize(
     req: HttpRequest,
-    session_manager: Data<Arc<SessionManager>>,
+    session_manager: Data<Arc<dyn SessionManagerTrait>>,
     config: Data<Config>,
     body: Json<InitializeRequest>,
 ) -> HttpResponse {
@@ -129,8 +129,8 @@ async fn initialize(
 #[post("/api/v1/execute/{request_id}")]
 async fn execute(
     path: Path<String>,
-    session_manager: Data<Arc<SessionManager>>,
-    runtime_manager: Data<Arc<RuntimeManager>>,
+    session_manager: Data<Arc<dyn SessionManagerTrait>>,
+    runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
     body: Json<ExecuteRequest>,
 ) -> HttpResponse {
     let request_id = path.into_inner();
@@ -177,7 +177,7 @@ async fn execute(
 #[get("/api/v1/sessions/{request_id}")]
 async fn get_session_state(
     path: Path<String>,
-    session_manager: Data<Arc<SessionManager>>,
+    session_manager: Data<Arc<dyn SessionManagerTrait>>,
 ) -> HttpResponse {
     let request_id = path.into_inner();
 
@@ -241,43 +241,76 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_function_list);
 }
 
+use async_trait::async_trait;
+
+#[async_trait]
+pub trait SessionManagerTrait {
+    async fn create_session<'a>(
+        &'a self,
+        language_title: String,
+        user_id: Option<String>,
+        context: serde_json::Value,
+        script_content: Option<String>,
+        compile_options: Option<serde_json::Value>,
+    ) -> Result<Session>;
+
+    async fn get_session<'a>(&'a self, request_id: &'a str) -> Result<Option<Session>>;
+
+    async fn update_session<'a>(&'a self, session: &'a Session) -> Result<()>;
+    
+    async fn expire_session<'a>(&'a self, request_id: &'a str) -> Result<()>;
+    
+    async fn cleanup_expired_sessions<'a>(&'a self) -> Result<u64>;
+}
+
+#[async_trait]
+pub trait RuntimeManagerTrait {
+    async fn execute<'a>(
+        &'a self,
+        session: &'a Session,
+        params: serde_json::Value,
+    ) -> Result<RuntimeExecuteResponse>;
+    
+    async fn compile_rust_script<'a>(&'a self, session: &'a Session) -> Result<Vec<u8>>;
+    
+    async fn execute_wasm<'a>(
+        &'a self,
+        session: &'a Session,
+        params: serde_json::Value,
+    ) -> Result<RuntimeExecuteResponse>;
+    
+    async fn execute_in_container<'a>(
+        &'a self,
+        runtime_type: RuntimeType,
+        session: &'a Session,
+        params: serde_json::Value,
+    ) -> Result<RuntimeExecuteResponse>;
+    
+    #[cfg(test)]
+    fn get_config(&self) -> &RuntimeConfig;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        runtime::{RuntimeExecuteResponse, RuntimeType},
+        runtime::{RuntimeConfig, RuntimeExecuteResponse, RuntimeType},
         session::{Session, SessionStatus},
     };
     use actix_web::{http::header, test, App};
-    use chrono::{DateTime, Duration, Utc};
+    use chrono::{Duration, Utc};
     use mockall::predicate::*;
     use mockall::*;
     use serde_json::json;
     use std::sync::Arc;
 
-    #[async_trait::async_trait]
-    pub trait SessionManagerTrait {
-        async fn create_session(
-            &self,
-            language_title: String,
-            user_id: Option<String>,
-            context: serde_json::Value,
-            script_content: Option<String>,
-            compile_options: Option<serde_json::Value>,
-        ) -> Result<Session>;
-
-        async fn get_session(&self, request_id: &str) -> Result<Option<Session>>;
-
-        async fn update_session(&self, session: &Session) -> Result<()>;
-    }
-
     mock! {
         pub SessionManager {}
 
-        #[async_trait::async_trait]
+        #[async_trait]
         impl SessionManagerTrait for SessionManager {
-            async fn create_session(
-                &self,
+            async fn create_session<'a>(
+                &'a self,
                 language_title: String,
                 user_id: Option<String>,
                 context: serde_json::Value,
@@ -285,31 +318,44 @@ mod tests {
                 compile_options: Option<serde_json::Value>,
             ) -> Result<Session>;
 
-            async fn get_session(&self, request_id: &str) -> Result<Option<Session>>;
+            async fn get_session<'a>(&'a self, request_id: &'a str) -> Result<Option<Session>>;
 
-            async fn update_session(&self, session: &Session) -> Result<()>;
+            async fn update_session<'a>(&'a self, session: &'a Session) -> Result<()>;
+            
+            async fn expire_session<'a>(&'a self, request_id: &'a str) -> Result<()>;
+            
+            async fn cleanup_expired_sessions<'a>(&'a self) -> Result<u64>;
         }
-    }
-
-    #[async_trait::async_trait]
-    pub trait RuntimeManagerTrait {
-        async fn execute(
-            &self,
-            session: &Session,
-            params: serde_json::Value,
-        ) -> Result<RuntimeExecuteResponse>;
     }
 
     mock! {
         pub RuntimeManager {}
 
-        #[async_trait::async_trait]
+        #[async_trait]
         impl RuntimeManagerTrait for RuntimeManager {
-            async fn execute(
-                &self,
-                session: &Session,
+            async fn execute<'a>(
+                &'a self,
+                session: &'a Session,
                 params: serde_json::Value,
             ) -> Result<RuntimeExecuteResponse>;
+            
+            async fn compile_rust_script<'a>(&'a self, session: &'a Session) -> Result<Vec<u8>>;
+            
+            async fn execute_wasm<'a>(
+                &'a self,
+                session: &'a Session,
+                params: serde_json::Value,
+            ) -> Result<RuntimeExecuteResponse>;
+            
+            async fn execute_in_container<'a>(
+                &'a self,
+                runtime_type: RuntimeType,
+                session: &'a Session,
+                params: serde_json::Value,
+            ) -> Result<RuntimeExecuteResponse>;
+            
+            #[cfg(test)]
+            fn get_config(&self) -> &RuntimeConfig;
         }
     }
 

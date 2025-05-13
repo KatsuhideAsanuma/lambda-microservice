@@ -181,7 +181,7 @@ mod tests {
         assert!(result.is_err());
         if let Err(err) = result {
             assert!(matches!(err, Error::Config(_)));
-            assert!(err.to_string().contains("not set"));
+            assert!(err.to_string().contains("environment variable not set"));
         }
     }
 
