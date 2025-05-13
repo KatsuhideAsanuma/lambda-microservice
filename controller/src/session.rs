@@ -443,7 +443,7 @@ mod tests {
         
         async fn query_one<'a>(&'a self, query: &'a str, _params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
             if query.contains("cleanup_expired_sessions") {
-                return self.query_one_result.lock().await.clone();
+                return Ok(tokio_postgres::Row::from_rows(&[]).unwrap_or_else(|| panic!("Failed to create mock row")));
             }
             
             let err_str = "No rows found".to_string();
