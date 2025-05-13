@@ -7,13 +7,13 @@ pub enum Error {
     Config(String),
 
     #[error("Database error: {0}")]
-    Database(#[from] deadpool_postgres::PoolError),
+    Database(String),
 
     #[error("PostgreSQL error: {0}")]
     Postgres(#[from] tokio_postgres::Error),
 
     #[error("Redis error: {0}")]
-    Redis(#[from] deadpool_redis::PoolError),
+    Cache(String),
 
     #[error("Redis command error: {0}")]
     RedisCmd(#[from] redis::RedisError),
@@ -25,10 +25,10 @@ pub enum Error {
     Runtime(String),
 
     #[error("HTTP client error: {0}")]
-    HttpClient(#[from] reqwest::Error),
+    External(String),
 
     #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
+    Serialization(String),
 
     #[error("WebAssembly error: {0}")]
     Wasm(String),
@@ -47,6 +47,104 @@ pub enum Error {
 
     #[error("Internal server error: {0}")]
     InternalServer(String),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+impl From<deadpool_postgres::PoolError> for Error {
+    fn from(err: deadpool_postgres::PoolError) -> Self {
+        Error::Database(err.to_string())
+    }
+}
+
+impl From<deadpool_redis::PoolError> for Error {
+    fn from(err: deadpool_redis::PoolError) -> Self {
+        Error::Cache(err.to_string())
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(err: reqwest::Error) -> Self {
+        Error::External(err.to_string())
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Error::Serialization(err.to_string())
+    }
+}
+
+impl From<sqlx::Error> for Error {
+    fn from(err: sqlx::Error) -> Self {
+        Error::Database(err.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+
+    #[test]
+    fn test_error_display() {
+        let db_error = Error::Database("Connection failed".to_string());
+        assert!(db_error.to_string().contains("Connection failed"));
+
+        let cache_error = Error::Cache("Redis error".to_string());
+        assert!(cache_error.to_string().contains("Redis error"));
+
+        let runtime_error = Error::Runtime("Execution failed".to_string());
+        assert!(runtime_error.to_string().contains("Execution failed"));
+
+        let bad_request = Error::BadRequest("Invalid parameters".to_string());
+        assert!(bad_request.to_string().contains("Invalid parameters"));
+
+        let not_found = Error::NotFound("Session not found".to_string());
+        assert!(not_found.to_string().contains("Session not found"));
+
+        let compilation = Error::Compilation("Failed to compile".to_string());
+        assert!(compilation.to_string().contains("Failed to compile"));
+
+        let io_error = Error::Io(io::Error::new(io::ErrorKind::Other, "IO error"));
+        assert!(io_error.to_string().contains("IO error"));
+    }
+
+    #[test]
+    fn test_error_from_reqwest() {
+        let reqwest_error = reqwest::Error::from(io::Error::new(io::ErrorKind::Other, "Network error"));
+        let error = Error::from(reqwest_error);
+        assert!(matches!(error, Error::External(_)));
+    }
+
+    #[test]
+    fn test_error_from_redis() {
+        let redis_error = redis::RedisError::from(io::Error::new(io::ErrorKind::Other, "Redis connection error"));
+        let error = Error::from(redis_error);
+        assert!(matches!(error, Error::RedisCmd(_)));
+    }
+
+    #[test]
+    fn test_error_from_sqlx() {
+        let sqlx_error = sqlx::Error::RowNotFound;
+        let error = Error::from(sqlx_error);
+        assert!(matches!(error, Error::Database(_)));
+    }
+
+    #[test]
+    fn test_error_from_serde_json() {
+        let json_error = serde_json::Error::syntax(serde_json::error::ErrorCode::ExpectedSomeValue, 0, 0);
+        let error = Error::from(json_error);
+        assert!(matches!(error, Error::Serialization(_)));
+    }
+
+    #[test]
+    fn test_error_from_io() {
+        let io_error = io::Error::new(io::ErrorKind::NotFound, "File not found");
+        let error = Error::from(io_error);
+        assert!(matches!(error, Error::Io(_)));
+    }
+}
