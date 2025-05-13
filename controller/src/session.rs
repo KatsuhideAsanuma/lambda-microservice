@@ -443,12 +443,7 @@ mod tests {
         
         async fn query_one<'a>(&'a self, query: &'a str, _params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
             if query.contains("cleanup_expired_sessions") {
-                let row = tokio_postgres::Row::new(
-                    vec![tokio_postgres::Column::new("count", 0, 23)], // 23 is the OID for int4
-                    vec![Some(5i32.to_string().into_bytes())],
-                    std::collections::HashMap::new(),
-                );
-                return Ok(row);
+                return self.query_one_result.lock().await.clone();
             }
             
             let err_str = "No rows found".to_string();
@@ -800,7 +795,11 @@ impl RedisPoolTrait for MockRedisPool {
     #[tokio::test]
     #[ignore]
     async fn test_session_manager_cleanup_expired_sessions() {
-        let db_pool = MockPostgresPool::new().with_execute_result(Ok(5));
+        let mock_row = MockRow::new()
+            .with_data("count", 5i64);
+            
+        let db_pool = MockPostgresPool::new()
+            .with_query_one_result(Ok(mock_row));
         let redis_pool = MockRedisPool::new();
         let session_manager = SessionManager::new(
             db_pool,
