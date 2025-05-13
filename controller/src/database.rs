@@ -283,7 +283,7 @@ pub mod tests {
     #[ignore]
     async fn test_postgres_pool_integration() {
         let database_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/test".to_string());
+            .unwrap_or_else(|_| "postgres://postgres:postgres@postgres:5432/lambda_microservice".to_string());
 
         let pool = PostgresPool::new(&database_url).await;
         assert!(pool.is_ok());

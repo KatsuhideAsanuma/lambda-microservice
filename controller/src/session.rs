@@ -441,7 +441,16 @@ mod tests {
             Err(crate::Error::NotFound(err_str))
         }
         
-        async fn query_one<'a>(&'a self, _query: &'a str, _params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
+        async fn query_one<'a>(&'a self, query: &'a str, _params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
+            if query.contains("cleanup_expired_sessions") {
+                let row = tokio_postgres::Row::new(
+                    vec![tokio_postgres::Column::new("count", 0, 23)], // 23 is the OID for int4
+                    vec![Some(5i32.to_string().into_bytes())],
+                    std::collections::HashMap::new(),
+                );
+                return Ok(row);
+            }
+            
             let err_str = "No rows found".to_string();
             Err(crate::Error::NotFound(err_str))
         }
