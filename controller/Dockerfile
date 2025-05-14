@@ -19,8 +19,7 @@ RUN mkdir -p src && \
 # Copy source code
 COPY . .
 
-# Build the application with static linking
-ENV RUSTFLAGS="-C target-feature=+crt-static"
+# Build the application
 RUN cargo build --release
 
 # Runtime stage
