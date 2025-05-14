@@ -1,9 +1,11 @@
 
 use crate::error::{Error, Result};
+use crate::schema;
 use crate::session::DbPoolTrait;
 use async_trait::async_trait;
 use deadpool_postgres::{Config, Pool, PoolConfig, Runtime};
 use tokio_postgres::NoTls;
+use tracing::{debug, error, info};
 
 #[derive(Clone)]
 pub struct PostgresPool {
@@ -67,6 +69,14 @@ impl PostgresPool {
 
         let client = pool.get().await?;
         client.execute("SELECT 1", &[]).await?;
+        
+        match schema::initialize_database(&client).await {
+            Ok(_) => info!("Database schema initialized successfully"),
+            Err(e) => {
+                error!("Failed to initialize database schema: {}", e);
+                debug!("Continuing with existing schema");
+            }
+        }
 
         Ok(Self { pool })
     }
