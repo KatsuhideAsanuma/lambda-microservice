@@ -49,10 +49,12 @@ run_test() {
   
   print_status "$YELLOW" "Running test: $test_name"
   
+  local escaped_script=$(echo "$script_content" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | tr -d '\n')
+  
   local init_response=$(curl -s -X POST \
     -H "Content-Type: application/json" \
     -H "Language-Title: $language_title" \
-    -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $(echo "$script_content" | jq -Rs .)}" \
+    -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": \"$escaped_script\"}" \
     http://localhost:8080/api/v1/initialize)
   
   local request_id=$(echo $init_response | jq -r '.request_id')
@@ -182,10 +184,12 @@ test_count=$((test_count + 1))
 
 print_status "$YELLOW" "Testing caching functionality..."
 
+escaped_script=$(echo "$nodejs_script" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | tr -d '\n')
+
 init_response=$(curl -s -X POST \
   -H "Content-Type: application/json" \
   -H "Language-Title: nodejs-calculator" \
-  -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $(echo "$nodejs_script" | jq -Rs .)}" \
+  -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": \"$escaped_script\"}" \
   http://localhost:8080/api/v1/initialize)
 
 request_id=$(echo $init_response | jq -r '.request_id')
