@@ -16,22 +16,22 @@ print_status() {
 wait_for_services() {
   print_status "$YELLOW" "Waiting for services to be ready..."
   
-  while ! curl -s http://localhost:8080/health > /dev/null; do
+  while ! curl -s http://localhost:8080/api/v1/health > /dev/null; do
     echo -n "."
     sleep 2
   done
   
-  while ! curl -s http://localhost:8081/health > /dev/null; do
+  while ! curl -s http://localhost:8081/api/v1/health > /dev/null; do
     echo -n "."
     sleep 2
   done
   
-  while ! curl -s http://localhost:8082/health > /dev/null; do
+  while ! curl -s http://localhost:8082/api/v1/health > /dev/null; do
     echo -n "."
     sleep 2
   done
   
-  while ! curl -s http://localhost:8083/health > /dev/null; do
+  while ! curl -s http://localhost:8083/api/v1/health > /dev/null; do
     echo -n "."
     sleep 2
   done
