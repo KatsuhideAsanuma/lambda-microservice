@@ -234,10 +234,11 @@ async fn get_function_list() -> HttpResponse {
     })
 }
 
-#[get("/health")]
+#[get("/api/v1/health")]
 async fn health() -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({
-        "status": "ok"
+        "status": "ok",
+        "timestamp": chrono::Utc::now().to_rfc3339()
     }))
 }
 
