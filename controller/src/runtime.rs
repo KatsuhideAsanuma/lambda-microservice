@@ -51,7 +51,7 @@ pub struct RuntimeConfig {
     pub nodejs_runtime_url: String,
     pub python_runtime_url: String,
     pub rust_runtime_url: String,
-    pub timeout_seconds: u64,
+    pub runtime_timeout_seconds: u64,
     pub max_script_size: usize,
     pub wasm_compile_timeout_seconds: u64,
 }
@@ -85,7 +85,7 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             nodejs_runtime_url: config.nodejs_runtime_url.clone(),
             python_runtime_url: config.python_runtime_url.clone(),
             rust_runtime_url: config.rust_runtime_url.clone(),
-            timeout_seconds: config.runtime_timeout_seconds,
+            runtime_timeout_seconds: config.runtime_timeout_seconds,
             max_script_size: config.max_script_size,
             wasm_compile_timeout_seconds: config.wasm_compile_timeout_seconds,
         };
@@ -185,7 +185,7 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
 
         let client = reqwest::Client::new();
         let response = timeout(
-            Duration::from_secs(self.config.timeout_seconds),
+            Duration::from_secs(self.config.runtime_timeout_seconds),
             client
                 .post(format!("{}/execute", runtime_url))
                 .json(&request)
@@ -301,7 +301,7 @@ mod tests {
             nodejs_runtime_url: "http://localhost:8081".to_string(),
             python_runtime_url: "http://localhost:8082".to_string(),
             rust_runtime_url: "http://localhost:8083".to_string(),
-            timeout_seconds: 30,
+            runtime_timeout_seconds: 30,
             max_script_size: 1048576,
             wasm_compile_timeout_seconds: 60,
         };
@@ -347,7 +347,7 @@ mod tests {
             nodejs_runtime_url: "http://nodejs:8080".to_string(),
             python_runtime_url: "http://python:8080".to_string(),
             rust_runtime_url: "http://rust:8080".to_string(),
-            timeout_seconds: 30,
+            runtime_timeout_seconds: 30,
             max_script_size: 1048576,
             wasm_compile_timeout_seconds: 60,
         };
@@ -491,7 +491,7 @@ mod tests {
             nodejs_runtime_url: "http://nodejs:8080".to_string(),
             python_runtime_url: "http://python:8080".to_string(),
             rust_runtime_url: "http://rust:8080".to_string(),
-            timeout_seconds: 30,
+            runtime_timeout_seconds: 30,
             max_script_size: 1048576,
             wasm_compile_timeout_seconds: 60,
         };
@@ -499,7 +499,7 @@ mod tests {
         assert_eq!(config.nodejs_runtime_url, "http://nodejs:8080");
         assert_eq!(config.python_runtime_url, "http://python:8080");
         assert_eq!(config.rust_runtime_url, "http://rust:8080");
-        assert_eq!(config.timeout_seconds, 30);
+        assert_eq!(config.runtime_timeout_seconds, 30);
         assert_eq!(config.max_script_size, 1048576);
         assert_eq!(config.wasm_compile_timeout_seconds, 60);
     }
