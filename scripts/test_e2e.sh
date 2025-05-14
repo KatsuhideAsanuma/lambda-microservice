@@ -52,7 +52,7 @@ run_test() {
   local init_response=$(curl -s -X POST \
     -H "Content-Type: application/json" \
     -H "Language-Title: $language_title" \
-    -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $(echo $script_content | jq -R .)}" \
+    -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $(echo "$script_content" | jq -Rs .)}" \
     http://localhost:8080/api/v1/initialize)
   
   local request_id=$(echo $init_response | jq -r '.request_id')
@@ -98,7 +98,7 @@ fi
 test_count=0
 passed_count=0
 
-nodejs_script='"module.exports = async (event) => { const { operation, values } = event.params; let result; switch(operation) { case \"add\": result = values.reduce((a, b) => a + b, 0); break; case \"multiply\": result = values.reduce((a, b) => a * b, 1); break; default: throw new Error(\"Unsupported operation\"); } return { result }; }"'
+nodejs_script='module.exports = async (event) => { const { operation, values } = event.params; let result; switch(operation) { case "add": result = values.reduce((a, b) => a + b, 0); break; case "multiply": result = values.reduce((a, b) => a * b, 1); break; default: throw new Error("Unsupported operation"); } return { result }; }'
 
 if run_test "Node.js Addition" "nodejs-calculator" "$nodejs_script" '{"operation": "add", "values": [1, 2, 3, 4, 5]}' '.result == 15'; then
   passed_count=$((passed_count + 1))
@@ -110,7 +110,21 @@ if run_test "Node.js Multiplication" "nodejs-calculator" "$nodejs_script" '{"ope
 fi
 test_count=$((test_count + 1))
 
-python_script='"def handle(event):\n    params = event.get(\"params\", {})\n    operation = params.get(\"operation\")\n    values = params.get(\"values\", [])\n    \n    if operation == \"add\":\n        result = sum(values)\n    elif operation == \"multiply\":\n        result = 1\n        for val in values:\n            result *= val\n    else:\n        raise ValueError(\"Unsupported operation\")\n        \n    return {\"result\": result}"'
+python_script='def handle(event):
+    params = event.get("params", {})
+    operation = params.get("operation")
+    values = params.get("values", [])
+    
+    if operation == "add":
+        result = sum(values)
+    elif operation == "multiply":
+        result = 1
+        for val in values:
+            result *= val
+    else:
+        raise ValueError("Unsupported operation")
+        
+    return {"result": result}'
 
 if run_test "Python Addition" "python-calculator" "$python_script" '{"operation": "add", "values": [1, 2, 3, 4, 5]}' '.result == 15'; then
   passed_count=$((passed_count + 1))
@@ -122,7 +136,31 @@ if run_test "Python Multiplication" "python-calculator" "$python_script" '{"oper
 fi
 test_count=$((test_count + 1))
 
-rust_script='"use serde::{Deserialize, Serialize};\nuse serde_json::Value;\n\n#[derive(Deserialize)]\nstruct Params {\n    operation: String,\n    values: Vec<i64>,\n}\n\n#[derive(Serialize)]\nstruct Response {\n    result: i64,\n}\n\npub fn handle(event: &str) -> Result<String, String> {\n    let event: Value = serde_json::from_str(event).map_err(|e| e.to_string())?;\n    let params: Params = serde_json::from_value(event[\"params\"].clone()).map_err(|e| e.to_string())?;\n    \n    let result = match params.operation.as_str() {\n        \"add\" => params.values.iter().sum(),\n        \"multiply\" => params.values.iter().fold(1, |acc, &x| acc * x),\n        _ => return Err(\"Unsupported operation\".to_string()),\n    };\n    \n    let response = Response { result };\n    serde_json::to_string(&response).map_err(|e| e.to_string())\n}"'
+rust_script='use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+struct Params {
+    operation: String,
+    values: Vec<i64>,
+}
+
+struct Response {
+    result: i64,
+}
+
+pub fn handle(event: &str) -> Result<String, String> {
+    let event: Value = serde_json::from_str(event).map_err(|e| e.to_string())?;
+    let params: Params = serde_json::from_value(event["params"].clone()).map_err(|e| e.to_string())?;
+    
+    let result = match params.operation.as_str() {
+        "add" => params.values.iter().sum(),
+        "multiply" => params.values.iter().fold(1, |acc, &x| acc * x),
+        _ => return Err("Unsupported operation".to_string()),
+    };
+    
+    let response = Response { result };
+    serde_json::to_string(&response).map_err(|e| e.to_string())
+}'
 
 if run_test "Rust Addition" "rust-calculator" "$rust_script" '{"operation": "add", "values": [1, 2, 3, 4, 5]}' '.result == 15'; then
   passed_count=$((passed_count + 1))
@@ -147,7 +185,7 @@ print_status "$YELLOW" "Testing caching functionality..."
 init_response=$(curl -s -X POST \
   -H "Content-Type: application/json" \
   -H "Language-Title: nodejs-calculator" \
-  -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $(echo $nodejs_script | jq -R .)}" \
+  -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $(echo "$nodejs_script" | jq -Rs .)}" \
   http://localhost:8080/api/v1/initialize)
 
 request_id=$(echo $init_response | jq -r '.request_id')
