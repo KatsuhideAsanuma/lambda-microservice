@@ -52,7 +52,7 @@ run_test() {
   local init_response=$(curl -s -X POST \
     -H "Content-Type: application/json" \
     -H "Language-Title: $language_title" \
-    -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $script_content}" \
+    -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $(echo $script_content | jq -R .)}" \
     http://localhost:8080/api/v1/initialize)
   
   local request_id=$(echo $init_response | jq -r '.request_id')
@@ -147,7 +147,7 @@ print_status "$YELLOW" "Testing caching functionality..."
 init_response=$(curl -s -X POST \
   -H "Content-Type: application/json" \
   -H "Language-Title: nodejs-calculator" \
-  -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $nodejs_script}" \
+  -d "{\"context\": {\"environment\": \"test\"}, \"script_content\": $(echo $nodejs_script | jq -R .)}" \
   http://localhost:8080/api/v1/initialize)
 
 request_id=$(echo $init_response | jq -r '.request_id')
