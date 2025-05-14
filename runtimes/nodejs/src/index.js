@@ -28,8 +28,11 @@ const port = process.env.PORT || 8080;
 app.use(bodyParser.json({ limit: '1mb' }));
 app.use(cors());
 
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+app.get('/api/v1/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok',
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.post('/execute', async (req, res) => {

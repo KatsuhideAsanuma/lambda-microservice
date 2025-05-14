@@ -35,7 +35,7 @@ struct AppState {
     wasm_engine: Engine,
 }
 
-#[get("/health")]
+#[get("/api/v1/health")]
 async fn health() -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({
         "status": "ok",

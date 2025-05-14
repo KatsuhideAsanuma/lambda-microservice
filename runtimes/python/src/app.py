@@ -43,9 +43,12 @@ class ExecuteResponse(BaseModel):
     execution_time_ms: int
     memory_usage_bytes: Optional[int] = None
 
-@app.get("/health")
+@app.get("/api/v1/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    }
 
 @app.post("/execute")
 async def execute(request: ExecuteRequest):
