@@ -19,6 +19,8 @@ pub struct RuntimeConfig {
     pub python_runtime_url: String,
     pub rust_runtime_url: String,
     pub runtime_timeout_seconds: u64,
+    pub runtime_fallback_timeout_seconds: u64,
+    pub runtime_max_retries: u32,
     pub max_script_size: usize,
     pub wasm_compile_timeout_seconds: u64,
 }
@@ -55,6 +57,14 @@ impl Config {
                     .unwrap_or_else(|_| "30".to_string())
                     .parse()
                     .map_err(|_| Error::Config("Invalid RUNTIME_TIMEOUT_SECONDS".to_string()))?,
+                runtime_fallback_timeout_seconds: env::var("RUNTIME_FALLBACK_TIMEOUT_SECONDS")
+                    .unwrap_or_else(|_| "15".to_string())
+                    .parse()
+                    .map_err(|_| Error::Config("Invalid RUNTIME_FALLBACK_TIMEOUT_SECONDS".to_string()))?,
+                runtime_max_retries: env::var("RUNTIME_MAX_RETRIES")
+                    .unwrap_or_else(|_| "3".to_string())
+                    .parse()
+                    .map_err(|_| Error::Config("Invalid RUNTIME_MAX_RETRIES".to_string()))?,
                 max_script_size: env::var("MAX_SCRIPT_SIZE")
                     .unwrap_or_else(|_| "1048576".to_string()) // 1MB
                     .parse()
@@ -132,6 +142,8 @@ mod tests {
         assert_eq!(config.runtime_config.python_runtime_url, "http://localhost:8082");
         assert_eq!(config.runtime_config.rust_runtime_url, "http://localhost:8083");
         assert_eq!(config.runtime_config.runtime_timeout_seconds, 30);
+        assert_eq!(config.runtime_config.runtime_fallback_timeout_seconds, 15);
+        assert_eq!(config.runtime_config.runtime_max_retries, 3);
         assert_eq!(config.runtime_config.max_script_size, 1048576);
         assert_eq!(config.runtime_config.wasm_compile_timeout_seconds, 60);
     }
@@ -192,6 +204,8 @@ mod tests {
             python_runtime_url: "http://python:8080".to_string(),
             rust_runtime_url: "http://rust:8080".to_string(),
             runtime_timeout_seconds: 45,
+            runtime_fallback_timeout_seconds: 20,
+            runtime_max_retries: 5,
             max_script_size: 2097152,
             wasm_compile_timeout_seconds: 90,
         };
