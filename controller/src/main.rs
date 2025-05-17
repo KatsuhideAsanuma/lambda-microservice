@@ -42,6 +42,11 @@ async fn main() -> std::io::Result<()> {
     );
     info!("Function manager initialized");
 
+    let db_logger = Arc::new(
+        lambda_microservice_controller::logger::DatabaseLogger::new(postgres_pool.clone(), true)
+    );
+    info!("Database logger initialized");
+
     let runtime_manager = Arc::new(
         lambda_microservice_controller::runtime::RuntimeManager::new(
             &config.runtime_config,
@@ -71,6 +76,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(redis_pool.clone()))
             .app_data(web::Data::new(session_manager.clone()))
             .app_data(web::Data::new(function_manager.clone()))
+            .app_data(web::Data::new(db_logger.clone()))
             .app_data(web::Data::new(runtime_manager.clone()))
             .app_data(web::Data::new(config.clone()))
             .configure(api::configure)
