@@ -23,6 +23,10 @@ pub struct RuntimeConfig {
     pub runtime_max_retries: u32,
     pub max_script_size: usize,
     pub wasm_compile_timeout_seconds: u64,
+    pub openfaas_gateway_url: String,
+    pub selection_strategy: Option<String>,
+    pub runtime_mappings_file: Option<String>,
+    pub kubernetes_namespace: Option<String>,
 }
 
 impl Config {
@@ -75,6 +79,8 @@ impl Config {
                     .map_err(|_| {
                         Error::Config("Invalid WASM_COMPILE_TIMEOUT_SECONDS".to_string())
                     })?,
+                openfaas_gateway_url: env::var("OPENFAAS_GATEWAY_URL")
+                    .unwrap_or_else(|_| "http://gateway.openfaas:8080".to_string()),
             },
         })
     }

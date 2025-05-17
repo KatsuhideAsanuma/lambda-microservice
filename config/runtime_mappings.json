@@ -1,0 +1,22 @@
+[
+  {
+    "pattern": "nodejs-",
+    "runtime_type": "nodejs",
+    "is_regex": false
+  },
+  {
+    "pattern": "python-",
+    "runtime_type": "python",
+    "is_regex": false
+  },
+  {
+    "pattern": "rust-",
+    "runtime_type": "rust",
+    "is_regex": false
+  },
+  {
+    "pattern": "^js-",
+    "runtime_type": "nodejs",
+    "is_regex": true
+  }
+]

@@ -2,8 +2,11 @@
 use crate::{
     api::RuntimeManagerTrait,
     error::{Error, Result},
+
+    openfaas::OpenFaaSClient,
     session::{DbPoolTrait, Session},
 };
+use tracing::{debug, error, info, warn};
 
 #[cfg(test)]
 use crate::database::tests::MockPostgresPool;
@@ -19,6 +22,20 @@ pub enum RuntimeType {
     NodeJs,
     Python,
     Rust,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeMapping {
+    pub pattern: String,
+    pub runtime_type: RuntimeType,
+    pub is_regex: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum RuntimeSelectionStrategy {
+    PrefixMatching,
+    ConfigurationBased,
+    DynamicDiscovery,
 }
 
 impl RuntimeType {
@@ -54,6 +71,9 @@ pub struct RuntimeConfig {
     pub timeout_seconds: u64,
     pub max_script_size: usize,
     pub wasm_compile_timeout_seconds: u64,
+    pub selection_strategy: RuntimeSelectionStrategy,
+    pub runtime_mappings: Vec<RuntimeMapping>,
+    pub kubernetes_namespace: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -77,10 +97,31 @@ pub struct RuntimeManager<D: DbPoolTrait> {
     db_pool: D,
     #[allow(dead_code)]
     wasm_engine: Engine,
+    openfaas_client: Option<OpenFaaSClient>,
 }
 
 impl<D: DbPoolTrait> RuntimeManager<D> {
     pub async fn new(config: &crate::config::RuntimeConfig, db_pool: D) -> Result<Self> {
+        let selection_strategy = match config.selection_strategy.as_deref() {
+            Some("config") => RuntimeSelectionStrategy::ConfigurationBased,
+            Some("discovery") => RuntimeSelectionStrategy::DynamicDiscovery,
+            _ => RuntimeSelectionStrategy::PrefixMatching,
+        };
+        
+        let mut runtime_mappings = Vec::new();
+        if let Some(mappings_file) = &config.runtime_mappings_file {
+            if let Ok(file_content) = tokio::fs::read_to_string(mappings_file).await {
+                if let Ok(mappings) = serde_json::from_str::<Vec<RuntimeMapping>>(&file_content) {
+                    runtime_mappings = mappings;
+                    info!("Loaded {} runtime mappings from {}", runtime_mappings.len(), mappings_file);
+                } else {
+                    warn!("Failed to parse runtime mappings from {}", mappings_file);
+                }
+            } else {
+                warn!("Failed to read runtime mappings file: {}", mappings_file);
+            }
+        }
+
         let runtime_config = RuntimeConfig {
             nodejs_runtime_url: config.nodejs_runtime_url.clone(),
             python_runtime_url: config.python_runtime_url.clone(),
@@ -88,15 +129,69 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             timeout_seconds: config.runtime_timeout_seconds,
             max_script_size: config.max_script_size,
             wasm_compile_timeout_seconds: config.wasm_compile_timeout_seconds,
+            selection_strategy,
+            runtime_mappings,
+            kubernetes_namespace: config.kubernetes_namespace.clone(),
         };
 
         let wasm_engine = Engine::default();
+
+        let openfaas_client = Some(OpenFaaSClient::new(
+            &config.openfaas_gateway_url,
+            config.runtime_timeout_seconds,
+        ));
 
         Ok(Self {
             config: runtime_config,
             db_pool,
             wasm_engine,
+            openfaas_client,
         })
+    }
+    
+    pub async fn get_runtime_type(&self, language_title: &str) -> Result<RuntimeType> {
+        match self.config.selection_strategy {
+            RuntimeSelectionStrategy::PrefixMatching => {
+                RuntimeType::from_language_title(language_title)
+            },
+            RuntimeSelectionStrategy::ConfigurationBased => {
+                if self.config.runtime_mappings.is_empty() {
+                    warn!("Configuration-based mapping selected but no mappings defined, falling back to prefix matching");
+                    return RuntimeType::from_language_title(language_title);
+                }
+                
+                for mapping in &self.config.runtime_mappings {
+                    if mapping.is_regex {
+                        match regex::Regex::new(&mapping.pattern) {
+                            Ok(re) => {
+                                if re.is_match(language_title) {
+                                    return Ok(mapping.runtime_type);
+                                }
+                            },
+                            Err(e) => {
+                                warn!("Invalid regex pattern '{}': {}", mapping.pattern, e);
+                            }
+                        }
+                    } else if language_title.contains(&mapping.pattern) {
+                        return Ok(mapping.runtime_type);
+                    }
+                }
+                
+                Err(Error::BadRequest(format!(
+                    "No configuration mapping found for language title: {}",
+                    language_title
+                )))
+            },
+            RuntimeSelectionStrategy::DynamicDiscovery => {
+                if let Some(namespace) = &self.config.kubernetes_namespace {
+                    info!("Dynamic discovery requested for '{}' in namespace '{}'", 
+                          language_title, namespace);
+                }
+                
+                warn!("Dynamic discovery not fully implemented, falling back to prefix matching");
+                RuntimeType::from_language_title(language_title)
+            }
+        }
     }
 }
 
@@ -107,7 +202,7 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         session: &'a Session,
         params: serde_json::Value,
     ) -> Result<RuntimeExecuteResponse> {
-        let runtime_type = RuntimeType::from_language_title(&session.language_title)?;
+        let runtime_type = self.get_runtime_type(&session.language_title).await?;
 
         match runtime_type {
             RuntimeType::Rust => {
@@ -174,7 +269,23 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         session: &'a Session,
         params: serde_json::Value,
     ) -> Result<RuntimeExecuteResponse> {
+        if let Some(openfaas_client) = &self.openfaas_client {
+            let function_name = openfaas_client.get_function_name_for_runtime(runtime_type);
+            debug!("Attempting to execute via OpenFaaS: {}", function_name);
+
+            match openfaas_client.invoke_function(&function_name, session, params.clone()).await {
+                Ok(response) => {
+                    info!("Successfully executed via OpenFaaS: {}", function_name);
+                    return Ok(response);
+                },
+                Err(e) => {
+                    warn!("OpenFaaS execution failed, falling back to direct container: {}", e);
+                }
+            }
+        }
+
         let runtime_url = runtime_type.get_runtime_url(&self.config);
+        debug!("Executing in container: {}", runtime_url);
 
         let request = RuntimeExecuteRequest {
             request_id: session.request_id.clone(),
@@ -251,7 +362,7 @@ mod tests {
         impl Clone for ReqwestClient {
             fn clone(&self) -> Self;
         }
-        
+
         #[async_trait]
         impl HttpClient for ReqwestClient {
             async fn post(&self, url: String) -> MockReqwestRequestBuilder;
@@ -268,7 +379,7 @@ mod tests {
 
     mock! {
         pub ReqwestRequestBuilder {}
-        
+
         #[async_trait]
         impl RequestBuilder for ReqwestRequestBuilder {
             fn json<T: Serialize + Send + 'static>(&self, json: T) -> Self;
@@ -284,19 +395,19 @@ mod tests {
 
     mock! {
         pub ReqwestResponse {}
-        
+
         #[async_trait]
         impl Response for ReqwestResponse {
             async fn json<T: serde::de::DeserializeOwned + 'static>(&self) -> Result<T>;
         }
     }
 
-    
+
 
     fn create_test_session(language_title: &str, script_content: Option<&str>) -> Session {
         let now = Utc::now();
         let expires_at = now + ChronoDuration::hours(1);
-        
+
         Session {
             request_id: "test-request-id".to_string(),
             language_title: language_title.to_string(),
@@ -326,14 +437,15 @@ mod tests {
             max_script_size: 1048576,
             wasm_compile_timeout_seconds: 60,
         };
-        
+
         let db_pool = MockPostgresPool::new();
         let wasm_engine = Engine::default();
-        
+
         RuntimeManager {
             config,
             db_pool,
             wasm_engine,
+            openfaas_client: None,
         }
     }
 
@@ -351,7 +463,7 @@ mod tests {
             RuntimeType::from_language_title("rust-factorial").unwrap(),
             RuntimeType::Rust
         );
-        
+
         let result = RuntimeType::from_language_title("invalid-title");
         assert!(result.is_err());
         match result {
@@ -372,7 +484,7 @@ mod tests {
             max_script_size: 1048576,
             wasm_compile_timeout_seconds: 60,
         };
-        
+
         assert_eq!(RuntimeType::NodeJs.get_runtime_url(&config), "http://nodejs:8080");
         assert_eq!(RuntimeType::Python.get_runtime_url(&config), "http://python:8080");
         assert_eq!(RuntimeType::Rust.get_runtime_url(&config), "http://rust:8080");
@@ -381,13 +493,13 @@ mod tests {
     #[tokio::test]
     async fn test_compile_rust_script() {
         let runtime_manager = create_test_runtime_manager();
-        
+
         let session = create_test_session("rust-test", Some("fn main() {}"));
         let result = runtime_manager.compile_rust_script(&session).await;
         assert!(result.is_ok());
         let wasm_bytes = result.unwrap();
         assert!(!wasm_bytes.is_empty());
-        
+
         let session = create_test_session("rust-test", None);
         let result = runtime_manager.compile_rust_script(&session).await;
         assert!(result.is_err());
@@ -402,20 +514,20 @@ mod tests {
     #[tokio::test]
     async fn test_execute_wasm() {
         let runtime_manager = create_test_runtime_manager();
-        
+
         let mut session = create_test_session("rust-test", Some("fn main() {}"));
         session.compiled_artifact = Some(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]);
-        
+
         let params = json!({"input": 42});
         let result = runtime_manager.execute_wasm(&session, params.clone()).await;
         assert!(result.is_ok());
-        
+
         let response = result.unwrap();
         assert_eq!(response.execution_time_ms, 100);
         assert_eq!(response.memory_usage_bytes, Some(1024 * 1024));
         assert!(response.result.get("result").is_some());
         assert_eq!(response.result.get("params").unwrap(), &params);
-        
+
         let session = create_test_session("rust-test", Some("fn main() {}"));
         let result = runtime_manager.execute_wasm(&session, params).await;
         assert!(result.is_err());
@@ -430,10 +542,10 @@ mod tests {
     #[tokio::test]
     async fn test_execute_in_container() {
         let runtime_manager = create_test_runtime_manager();
-        
+
         let session = create_test_session("nodejs-test", Some("function test() { return 42; }"));
         let params = json!({"input": 42});
-        
+
         let client = reqwest::Client::new();
         let response = client.post(format!("{}/execute", "http://localhost:8081"))
             .json(&RuntimeExecuteRequest {
@@ -444,14 +556,14 @@ mod tests {
             })
             .send()
             .await;
-            
+
         if response.is_err() {
             let result = runtime_manager.execute_in_container(
                 RuntimeType::NodeJs,
                 &session,
                 params.clone()
             ).await;
-            
+
             assert!(result.is_err());
             match result {
                 Err(Error::External(_)) => {
@@ -464,7 +576,7 @@ mod tests {
                 &session,
                 params.clone()
             ).await;
-            
+
             if let Ok(response) = result {
                 assert!(response.execution_time_ms > 0);
                 assert!(response.result.is_object());
@@ -475,27 +587,27 @@ mod tests {
     #[tokio::test]
     async fn test_execute_rust_pending() {
         let runtime_manager = create_test_runtime_manager();
-        
+
         let mut session = create_test_session("rust-test", Some("fn main() {}"));
         session.compile_status = Some("pending".to_string());
-        
+
         let params = json!({"input": 42});
-        
+
         let result = runtime_manager.execute(&session, params).await;
-        
+
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_execute_rust_with_error() {
         let runtime_manager = create_test_runtime_manager();
-        
+
         let mut session = create_test_session("rust-test", Some("fn main() {}"));
         session.compile_status = Some("error".to_string());
         session.compile_error = Some("Compilation failed".to_string());
-        
+
         let params = json!({"input": 42});
-        
+
         let result = runtime_manager.execute(&session, params).await;
         assert!(result.is_err());
         match result {
@@ -516,7 +628,7 @@ mod tests {
             max_script_size: 1048576,
             wasm_compile_timeout_seconds: 60,
         };
-        
+
         assert_eq!(config.nodejs_runtime_url, "http://nodejs:8080");
         assert_eq!(config.python_runtime_url, "http://python:8080");
         assert_eq!(config.rust_runtime_url, "http://rust:8080");
@@ -533,7 +645,7 @@ mod tests {
             context: json!({"env": "test"}),
             script_content: Some("fn main() {}".to_string()),
         };
-        
+
         assert_eq!(request.request_id, "test-id");
         assert_eq!(request.params, json!({"input": 42}));
         assert_eq!(request.context, json!({"env": "test"}));
@@ -547,7 +659,7 @@ mod tests {
             execution_time_ms: 150,
             memory_usage_bytes: Some(2048),
         };
-        
+
         assert_eq!(response.result, json!({"output": 84}));
         assert_eq!(response.execution_time_ms, 150);
         assert_eq!(response.memory_usage_bytes, Some(2048));

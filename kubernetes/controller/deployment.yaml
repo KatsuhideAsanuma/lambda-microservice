@@ -55,6 +55,8 @@ spec:
           value: "1048576"
         - name: WASM_COMPILE_TIMEOUT_SECONDS
           value: "60"
+        - name: OPENFAAS_GATEWAY_URL
+          value: "http://gateway.openfaas:8080"
         resources:
           limits:
             cpu: "1"

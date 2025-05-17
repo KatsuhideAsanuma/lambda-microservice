@@ -2,6 +2,7 @@
 use crate::{
     config::Config,
     error::{Result},
+    function::{Function, FunctionQuery},
     runtime::{RuntimeConfig, RuntimeExecuteResponse, RuntimeType},
     session::{Session},
 };
@@ -206,39 +207,83 @@ async fn get_session_state(
 }
 
 #[get("/api/v1/functions")]
-async fn get_function_list() -> HttpResponse {
-    HttpResponse::Ok().json(FunctionListResponse {
-        functions: vec![
-            FunctionInfo {
-                language_title: "nodejs-calculator".to_string(),
-                description: Some("Node.js calculator function".to_string()),
-                r#type: "predefined".to_string(),
-                created_at: "2023-01-01T00:00:00Z".to_string(),
-                last_updated_at: "2023-01-01T00:00:00Z".to_string(),
-            },
-            FunctionInfo {
-                language_title: "python-calculator".to_string(),
-                description: Some("Python calculator function".to_string()),
-                r#type: "predefined".to_string(),
-                created_at: "2023-01-01T00:00:00Z".to_string(),
-                last_updated_at: "2023-01-01T00:00:00Z".to_string(),
-            },
-            FunctionInfo {
-                language_title: "rust-calculator".to_string(),
-                description: Some("Rust calculator function".to_string()),
-                r#type: "predefined".to_string(),
-                created_at: "2023-01-01T00:00:00Z".to_string(),
-                last_updated_at: "2023-01-01T00:00:00Z".to_string(),
-            },
-        ],
-    })
+async fn get_function_list(
+    function_manager: Data<Arc<dyn FunctionManagerTrait>>,
+    query: web::Query<FunctionQuery>,
+) -> HttpResponse {
+    match function_manager.get_functions(&query).await {
+        Ok(functions) => {
+            let function_infos: Vec<FunctionInfo> = functions
+                .into_iter()
+                .map(|f| FunctionInfo {
+                    language_title: f.language_title,
+                    description: f.description,
+                    r#type: if f.created_by.is_some() {
+                        "dynamic".to_string()
+                    } else {
+                        "predefined".to_string()
+                    },
+                    created_at: f.created_at.to_rfc3339(),
+                    last_updated_at: f.updated_at.to_rfc3339(),
+                })
+                .collect();
+            
+            HttpResponse::Ok().json(FunctionListResponse {
+                functions: function_infos,
+            })
+        }
+        Err(err) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Failed to get functions: {}", err)
+            }))
+        }
+    }
+}
+
+#[get("/api/v1/functions/{language_title}")]
+async fn get_function_detail(
+    function_manager: Data<Arc<dyn FunctionManagerTrait>>,
+    path: Path<String>,
+) -> HttpResponse {
+    let language_title = path.into_inner();
+    
+    match function_manager.get_function(&language_title).await {
+        Ok(Some(function)) => {
+            let response = serde_json::json!({
+                "language": function.language,
+                "title": function.title,
+                "language_title": function.language_title,
+                "description": function.description,
+                "type": if function.created_by.is_some() { "dynamic" } else { "predefined" },
+                "user_id": function.created_by,
+                "created_at": function.created_at.to_rfc3339(),
+                "updated_at": function.updated_at.to_rfc3339(),
+                "script_content": function.script_content,
+                "schema": function.schema_definition,
+                "examples": function.examples,
+            });
+            
+            HttpResponse::Ok().json(response)
+        }
+        Ok(None) => {
+            HttpResponse::NotFound().json(serde_json::json!({
+                "error": format!("Function with language_title '{}' not found", language_title)
+            }))
+        }
+        Err(err) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Failed to get function: {}", err)
+            }))
+        }
+    }
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(initialize)
         .service(execute)
         .service(get_session_state)
-        .service(get_function_list);
+        .service(get_function_list)
+        .service(get_function_detail);
 }
 
 use async_trait::async_trait;
@@ -288,6 +333,14 @@ pub trait RuntimeManagerTrait {
     
     #[cfg(test)]
     fn get_config(&self) -> &RuntimeConfig;
+}
+
+#[async_trait]
+pub trait FunctionManagerTrait {
+    async fn get_functions<'a>(&'a self, query: &'a FunctionQuery) -> Result<Vec<Function>>;
+    async fn get_function<'a>(&'a self, language_title: &'a str) -> Result<Option<Function>>;
+    async fn create_function<'a>(&'a self, function: &'a Function) -> Result<Function>;
+    async fn update_function<'a>(&'a self, function: &'a Function) -> Result<Function>;
 }
 
 #[cfg(test)]
