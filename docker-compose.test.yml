@@ -1,0 +1,37 @@
+version: '3'
+services:
+  mock-nodejs-runtime:
+    image: node:16-alpine
+    command: node /app/mock_runtime_server.js
+    volumes:
+      - ./test/mocks:/app
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - RESPONSE_DELAY_MS=50
+      - ERROR_RATE=0.1
+      
+  mock-python-runtime:
+    image: python:3.9-alpine
+    command: python /app/mock_runtime_server.py
+    volumes:
+      - ./test/mocks:/app
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - RESPONSE_DELAY_MS=50
+      - ERROR_RATE=0.1
+      
+  mock-rust-runtime:
+    image: rust:1.60-alpine
+    command: sh -c "cd /app && cargo run --release"
+    volumes:
+      - ./test/mocks/rust_runtime:/app
+    ports:
+      - "8083:8083"
+    environment:
+      - PORT=8083
+      - RESPONSE_DELAY_MS=50
+      - ERROR_RATE=0.1
