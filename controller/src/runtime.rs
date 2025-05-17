@@ -183,16 +183,37 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
             script_content: session.script_content.clone(),
         };
 
+        use tokio_retry::strategy::{ExponentialBackoff, jitter};
+        use tokio_retry::Retry;
+        
+        let retry_strategy = ExponentialBackoff::from_millis(10)
+            .factor(2)
+            .max_delay(Duration::from_secs(1))
+            .max_retries(self.config.runtime_max_retries as usize)
+            .map(jitter);
+
         let client = reqwest::Client::new();
-        let response = timeout(
-            Duration::from_secs(self.config.timeout_seconds),
-            client
-                .post(format!("{}/execute", runtime_url))
-                .json(&request)
-                .send(),
-        )
-        .await
-        .map_err(|_| Error::Runtime("Runtime execution timed out".to_string()))??;
+        
+        let response = Retry::spawn(retry_strategy, || {
+            let client = client.clone();
+            let request = &request;
+            let runtime_url = runtime_url;
+            let timeout_seconds = self.config.timeout_seconds;
+            
+            async move {
+                let response = timeout(
+                    Duration::from_secs(timeout_seconds),
+                    client
+                        .post(format!("{}/execute", runtime_url))
+                        .json(request)
+                        .send(),
+                )
+                .await
+                .map_err(|_| Error::Runtime("Runtime execution timed out".to_string()))??;
+                
+                Ok::<_, Error>(response)
+            }
+        }).await?;
 
         let runtime_response = response
             .json::<RuntimeExecuteResponse>()
