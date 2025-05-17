@@ -24,6 +24,20 @@ pub enum RuntimeType {
     Rust,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeMapping {
+    pub pattern: String,
+    pub runtime_type: RuntimeType,
+    pub is_regex: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum RuntimeSelectionStrategy {
+    PrefixMatching,
+    ConfigurationBased,
+    DynamicDiscovery,
+}
+
 impl RuntimeType {
     pub fn from_language_title(language_title: &str) -> Result<Self> {
         if language_title.starts_with("nodejs-") {
@@ -57,6 +71,9 @@ pub struct RuntimeConfig {
     pub timeout_seconds: u64,
     pub max_script_size: usize,
     pub wasm_compile_timeout_seconds: u64,
+    pub selection_strategy: RuntimeSelectionStrategy,
+    pub runtime_mappings: Vec<RuntimeMapping>,
+    pub kubernetes_namespace: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -85,6 +102,26 @@ pub struct RuntimeManager<D: DbPoolTrait> {
 
 impl<D: DbPoolTrait> RuntimeManager<D> {
     pub async fn new(config: &crate::config::RuntimeConfig, db_pool: D) -> Result<Self> {
+        let selection_strategy = match config.selection_strategy.as_deref() {
+            Some("config") => RuntimeSelectionStrategy::ConfigurationBased,
+            Some("discovery") => RuntimeSelectionStrategy::DynamicDiscovery,
+            _ => RuntimeSelectionStrategy::PrefixMatching,
+        };
+        
+        let mut runtime_mappings = Vec::new();
+        if let Some(mappings_file) = &config.runtime_mappings_file {
+            if let Ok(file_content) = tokio::fs::read_to_string(mappings_file).await {
+                if let Ok(mappings) = serde_json::from_str::<Vec<RuntimeMapping>>(&file_content) {
+                    runtime_mappings = mappings;
+                    info!("Loaded {} runtime mappings from {}", runtime_mappings.len(), mappings_file);
+                } else {
+                    warn!("Failed to parse runtime mappings from {}", mappings_file);
+                }
+            } else {
+                warn!("Failed to read runtime mappings file: {}", mappings_file);
+            }
+        }
+
         let runtime_config = RuntimeConfig {
             nodejs_runtime_url: config.nodejs_runtime_url.clone(),
             python_runtime_url: config.python_runtime_url.clone(),
@@ -92,6 +129,9 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             timeout_seconds: config.runtime_timeout_seconds,
             max_script_size: config.max_script_size,
             wasm_compile_timeout_seconds: config.wasm_compile_timeout_seconds,
+            selection_strategy,
+            runtime_mappings,
+            kubernetes_namespace: config.kubernetes_namespace.clone(),
         };
 
         let wasm_engine = Engine::default();
@@ -108,6 +148,51 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             openfaas_client,
         })
     }
+    
+    pub async fn get_runtime_type(&self, language_title: &str) -> Result<RuntimeType> {
+        match self.config.selection_strategy {
+            RuntimeSelectionStrategy::PrefixMatching => {
+                RuntimeType::from_language_title(language_title)
+            },
+            RuntimeSelectionStrategy::ConfigurationBased => {
+                if self.config.runtime_mappings.is_empty() {
+                    warn!("Configuration-based mapping selected but no mappings defined, falling back to prefix matching");
+                    return RuntimeType::from_language_title(language_title);
+                }
+                
+                for mapping in &self.config.runtime_mappings {
+                    if mapping.is_regex {
+                        match regex::Regex::new(&mapping.pattern) {
+                            Ok(re) => {
+                                if re.is_match(language_title) {
+                                    return Ok(mapping.runtime_type);
+                                }
+                            },
+                            Err(e) => {
+                                warn!("Invalid regex pattern '{}': {}", mapping.pattern, e);
+                            }
+                        }
+                    } else if language_title.contains(&mapping.pattern) {
+                        return Ok(mapping.runtime_type);
+                    }
+                }
+                
+                Err(Error::BadRequest(format!(
+                    "No configuration mapping found for language title: {}",
+                    language_title
+                )))
+            },
+            RuntimeSelectionStrategy::DynamicDiscovery => {
+                if let Some(namespace) = &self.config.kubernetes_namespace {
+                    info!("Dynamic discovery requested for '{}' in namespace '{}'", 
+                          language_title, namespace);
+                }
+                
+                warn!("Dynamic discovery not fully implemented, falling back to prefix matching");
+                RuntimeType::from_language_title(language_title)
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -117,7 +202,7 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         session: &'a Session,
         params: serde_json::Value,
     ) -> Result<RuntimeExecuteResponse> {
-        let runtime_type = RuntimeType::from_language_title(&session.language_title)?;
+        let runtime_type = self.get_runtime_type(&session.language_title).await?;
 
         match runtime_type {
             RuntimeType::Rust => {

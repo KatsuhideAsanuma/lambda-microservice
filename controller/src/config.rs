@@ -22,6 +22,9 @@ pub struct RuntimeConfig {
     pub max_script_size: usize,
     pub wasm_compile_timeout_seconds: u64,
     pub openfaas_gateway_url: String,
+    pub selection_strategy: Option<String>,
+    pub runtime_mappings_file: Option<String>,
+    pub kubernetes_namespace: Option<String>,
 }
 
 impl Config {

@@ -2,7 +2,7 @@ use actix_cors::Cors;
 use actix_web::{middleware, web, App, HttpServer};
 use dotenv::dotenv;
 use lambda_microservice_controller::{
-    api, config::Config, database::PostgresPool, session::SessionManager,
+    api, config::Config, database::PostgresPool, function::FunctionManager, session::SessionManager,
 };
 use std::sync::Arc;
 use tracing::{info, Level};
@@ -37,6 +37,11 @@ async fn main() -> std::io::Result<()> {
     ));
     info!("Session manager initialized");
 
+    let function_manager = Arc::new(
+        FunctionManager::new(postgres_pool.clone())
+    );
+    info!("Function manager initialized");
+
     let runtime_manager = Arc::new(
         lambda_microservice_controller::runtime::RuntimeManager::new(
             &config.runtime_config,
@@ -65,6 +70,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(postgres_pool.clone()))
             .app_data(web::Data::new(redis_pool.clone()))
             .app_data(web::Data::new(session_manager.clone()))
+            .app_data(web::Data::new(function_manager.clone()))
             .app_data(web::Data::new(runtime_manager.clone()))
             .app_data(web::Data::new(config.clone()))
             .configure(api::configure)
