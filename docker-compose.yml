@@ -1,6 +1,46 @@
 version: '3.8'
 
 services:
+  # API Gateway
+  envoy:
+    build:
+      context: ./envoy
+    ports:
+      - "9000:8080"
+    depends_on:
+      - gateway
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      
+  # OpenFaaS Gateway
+  gateway:
+    image: openfaas/gateway:0.24.0
+    environment:
+      - functions_provider_url=http://faas-provider:8080/
+      - direct_functions=true
+      - read_timeout=30s
+      - write_timeout=30s
+    ports:
+      - "8000:8080"
+      
+  # OpenFaaS Provider
+  faas-provider:
+    image: openfaas/faas-provider:0.8.1
+    environment:
+      - functions_namespace=lambda-microservice
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - nats
+      
+  # NATS for OpenFaaS
+  nats:
+    image: nats-streaming:0.22.0
+    command: ["-m", "8222", "--store=memory", "--cluster_id=faas-cluster"]
+    
   # Database
   postgres:
     image: postgres:14-alpine
