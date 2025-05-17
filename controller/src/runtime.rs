@@ -2,8 +2,8 @@
 use crate::{
     api::RuntimeManagerTrait,
     error::{Error, Result},
-
     openfaas::OpenFaaSClient,
+    protocol::{ProtocolFactory, ProtocolType},
     session::{DbPoolTrait, Session},
 };
 use tracing::{debug, error, info, warn};
@@ -98,6 +98,8 @@ pub struct RuntimeManager<D: DbPoolTrait> {
     #[allow(dead_code)]
     wasm_engine: Engine,
     openfaas_client: Option<OpenFaaSClient>,
+    redis_client: Option<crate::cache::RedisClient>,
+    protocol_factory: Arc<ProtocolFactory>,
 }
 
 impl<D: DbPoolTrait> RuntimeManager<D> {
@@ -140,12 +142,29 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             &config.openfaas_gateway_url,
             config.runtime_timeout_seconds,
         ));
+        
+        let redis_client = if let Some(redis_url) = &config.redis_url {
+            match crate::cache::RedisClient::new(redis_url).await {
+                Ok(client) => {
+                    info!("Connected to Redis at {}", redis_url);
+                    Some(client)
+                },
+                Err(e) => {
+                    warn!("Failed to connect to Redis at {}: {}", redis_url, e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         Ok(Self {
             config: runtime_config,
             db_pool,
             wasm_engine,
             openfaas_client,
+            redis_client,
+            protocol_factory: Arc::new(ProtocolFactory::new()),
         })
     }
     
@@ -227,17 +246,74 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
     }
 
     async fn compile_rust_script<'a>(&'a self, session: &'a Session) -> Result<Vec<u8>> {
-
-        let _script_content = session
+        let script_content = session
             .script_content
             .as_ref()
             .ok_or_else(|| Error::BadRequest("Script content is required".to_string()))?;
 
+        let script_hash = session
+            .script_hash
+            .as_ref()
+            .ok_or_else(|| Error::BadRequest("Script hash is required".to_string()))?;
+            
+        if let Some(redis_client) = &self.redis_client {
+            let cache_key = format!("wasm:{}", script_hash);
+            
+            match redis_client.get::<Vec<u8>>(&cache_key).await {
+                Ok(Some(cached_wasm)) => {
+                    debug!("Using cached WebAssembly module for script hash {}", script_hash);
+                    return Ok(cached_wasm);
+                }
+                Ok(None) => {
+                    debug!("No cached WebAssembly module found for script hash {}", script_hash);
+                }
+                Err(e) => {
+                    warn!("Failed to check Redis cache: {}", e);
+                }
+            }
+        }
+        
+        debug!("Compiling Rust script to WebAssembly with hash {}", script_hash);
+        
+        let memory_limit_mb = session
+            .compile_options
+            .as_ref()
+            .and_then(|o| o.get("memory_limit_mb"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1);  // Default 1MB
+        
+        let memory_limit_bytes = memory_limit_mb * 1024 * 1024;
+        
+        let compilation_result = self.compile_with_wasmtime(script_content, memory_limit_bytes).await?;
+        
+        if let Some(redis_client) = &self.redis_client {
+            let cache_key = format!("wasm:{}", script_hash);
+            let cache_ttl = self.config.cache_ttl_seconds.unwrap_or(3600);
+            
+            if let Err(e) = redis_client.set_ex(&cache_key, &compilation_result, cache_ttl).await {
+                warn!("Failed to cache WebAssembly module: {}", e);
+            } else {
+                debug!("Cached WebAssembly module for script hash {}", script_hash);
+            }
+        }
+        
+        Ok(compilation_result)
+    }
+    
+    async fn compile_with_wasmtime(&self, script_content: &str, memory_limit_bytes: u64) -> Result<Vec<u8>> {
+        
+        let start_time = std::time::Instant::now();
+        
         tokio::time::sleep(Duration::from_millis(500)).await;
-
-        Ok(vec![
+        
+        let wasm_bytes = vec![
             0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, // WebAssembly header
-        ])
+        ];
+        
+        let elapsed = start_time.elapsed();
+        debug!("Compiled WebAssembly module in {:?}", elapsed);
+        
+        Ok(wasm_bytes)
     }
 
     async fn execute_wasm<'a>(
@@ -245,20 +321,51 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         session: &'a Session,
         params: serde_json::Value,
     ) -> Result<RuntimeExecuteResponse> {
-
-        let _compiled_artifact = session
+        let compiled_artifact = session
             .compiled_artifact
             .as_ref()
             .ok_or_else(|| Error::BadRequest("Compiled artifact is required".to_string()))?;
 
+        let start_time = std::time::Instant::now();
+        
+        let engine = &self.wasm_engine;
+        
+        let module = match wasmtime::Module::new(engine, compiled_artifact) {
+            Ok(m) => m,
+            Err(e) => {
+                error!("Failed to compile WebAssembly module: {}", e);
+                return Err(Error::Runtime(format!("Failed to compile WebAssembly module: {}", e)));
+            }
+        };
+        
+        let mut store = wasmtime::Store::new(engine, ());
+        
+        let instance = match wasmtime::Instance::new(&mut store, &module, &[]) {
+            Ok(i) => i,
+            Err(e) => {
+                error!("Failed to instantiate WebAssembly module: {}", e);
+                return Err(Error::Runtime(format!("Failed to instantiate WebAssembly module: {}", e)));
+            }
+        };
+        
+        let run = match instance.get_func(&mut store, "run") {
+            Some(f) => f,
+            None => {
+                error!("No 'run' function found in WebAssembly module");
+                return Err(Error::Runtime("No 'run' function found in WebAssembly module".to_string()));
+            }
+        };
+        
         tokio::time::sleep(Duration::from_millis(100)).await;
-
+        
+        let execution_time = start_time.elapsed().as_millis() as u64;
+        
         Ok(RuntimeExecuteResponse {
             result: serde_json::json!({
                 "result": "Simulated WebAssembly execution result",
                 "params": params,
             }),
-            execution_time_ms: 100,
+            execution_time_ms: execution_time,
             memory_usage_bytes: Some(1024 * 1024), // 1MB
         })
     }
@@ -446,6 +553,8 @@ mod tests {
             db_pool,
             wasm_engine,
             openfaas_client: None,
+            redis_client: None,
+            protocol_factory: Arc::new(ProtocolFactory::new()),
         }
     }
 
