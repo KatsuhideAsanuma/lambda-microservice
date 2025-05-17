@@ -32,6 +32,10 @@ uuid = { version = "1.3.3", features = ["v4", "serde"] }
 chrono = { version = "0.4.26", features = ["serde"] }
 dotenv = "0.15.0"
 
+# Database
+tokio-postgres = "0.7.8"
+deadpool-postgres = "0.10.5"
+
 # WebAssembly execution
 wasmtime = "9.0.3"
 

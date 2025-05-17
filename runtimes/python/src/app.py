@@ -65,6 +65,31 @@ async def execute(request: ExecuteRequest):
                 with open(script_path, "r") as f:
                     script_to_execute = f.read()
             except FileNotFoundError:
+                if os.environ.get("DB_LOGGING_ENABLED") == "true":
+                    try:
+                        import psycopg2
+                        import json
+                        conn = psycopg2.connect(os.environ.get("DB_CONNECTION_STRING"))
+                        cur = conn.cursor()
+                        
+                        cur.execute(
+                            """INSERT INTO public.error_logs 
+                            (request_log_id, error_code, error_message, context) 
+                            VALUES (%s, %s, %s, %s)""",
+                            (
+                                request.request_id,
+                                "SCRIPT_NOT_FOUND",
+                                f"Script not found for language title: {language_title}",
+                                json.dumps({"params": request.params, "context": request.context})
+                            )
+                        )
+                        
+                        conn.commit()
+                        cur.close()
+                        conn.close()
+                    except Exception as db_err:
+                        logger.error(f"Failed to log error to database: {str(db_err)}")
+                
                 raise HTTPException(
                     status_code=404,
                     detail=f"Script not found for language title: {language_title}"
@@ -82,12 +107,44 @@ async def execute(request: ExecuteRequest):
 
         result = None
         with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-            exec(script_to_execute, globals_dict)
-            
-            if "handle" in globals_dict and callable(globals_dict["handle"]):
-                result = globals_dict["handle"](request.params)
-            else:
-                result = globals_dict.get("result")
+            try:
+                exec(script_to_execute, globals_dict)
+                
+                if "handle" in globals_dict and callable(globals_dict["handle"]):
+                    result = globals_dict["handle"](request.params)
+                else:
+                    result = globals_dict.get("result")
+            except Exception as exec_error:
+                logger.error(f"Script execution error: {str(exec_error)}")
+                logger.error(traceback.format_exc())
+                
+                if os.environ.get("DB_LOGGING_ENABLED") == "true":
+                    try:
+                        import psycopg2
+                        import json
+                        conn = psycopg2.connect(os.environ.get("DB_CONNECTION_STRING"))
+                        cur = conn.cursor()
+                        
+                        cur.execute(
+                            """INSERT INTO public.error_logs 
+                            (request_log_id, error_code, error_message, stack_trace, context) 
+                            VALUES (%s, %s, %s, %s, %s)""",
+                            (
+                                request.request_id,
+                                "SCRIPT_EXECUTION_ERROR",
+                                str(exec_error),
+                                traceback.format_exc(),
+                                json.dumps({"params": request.params, "context": request.context})
+                            )
+                        )
+                        
+                        conn.commit()
+                        cur.close()
+                        conn.close()
+                    except Exception as db_err:
+                        logger.error(f"Failed to log error to database: {str(db_err)}")
+                
+                raise exec_error
 
         stdout_output = stdout_buffer.getvalue()
         stderr_output = stderr_buffer.getvalue()
@@ -98,6 +155,33 @@ async def execute(request: ExecuteRequest):
             logger.warning(f"[{request.request_id}] STDERR: {stderr_output}")
 
         execution_time = int((time.time() - start_time) * 1000)  # Convert to ms
+        
+        if os.environ.get("DB_LOGGING_ENABLED") == "true":
+            try:
+                import psycopg2
+                import json
+                conn = psycopg2.connect(os.environ.get("DB_CONNECTION_STRING"))
+                cur = conn.cursor()
+                
+                cur.execute(
+                    """INSERT INTO public.request_logs 
+                    (request_id, language_title, request_payload, response_payload, status_code, duration_ms) 
+                    VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (
+                        request.request_id,
+                        request.context.get("language_title", "default"),
+                        json.dumps(request.params),
+                        json.dumps(result),
+                        200,
+                        execution_time
+                    )
+                )
+                
+                conn.commit()
+                cur.close()
+                conn.close()
+            except Exception as db_err:
+                logger.error(f"Failed to log execution to database: {str(db_err)}")
         
         logger.info(f"Request {request.request_id} executed successfully in {execution_time}ms")
 
@@ -110,6 +194,32 @@ async def execute(request: ExecuteRequest):
     except Exception as e:
         logger.error(f"Error executing request {request.request_id}: {str(e)}")
         logger.error(traceback.format_exc())
+        
+        if os.environ.get("DB_LOGGING_ENABLED") == "true":
+            try:
+                import psycopg2
+                import json
+                conn = psycopg2.connect(os.environ.get("DB_CONNECTION_STRING"))
+                cur = conn.cursor()
+                
+                cur.execute(
+                    """INSERT INTO public.error_logs 
+                    (request_log_id, error_code, error_message, stack_trace, context) 
+                    VALUES (%s, %s, %s, %s, %s)""",
+                    (
+                        request.request_id,
+                        "REQUEST_EXECUTION_ERROR",
+                        str(e),
+                        traceback.format_exc(),
+                        json.dumps({"params": request.params, "context": request.context})
+                    )
+                )
+                
+                conn.commit()
+                cur.close()
+                conn.close()
+            except Exception as db_err:
+                logger.error(f"Failed to log error to database: {str(db_err)}")
         
         raise HTTPException(
             status_code=500,

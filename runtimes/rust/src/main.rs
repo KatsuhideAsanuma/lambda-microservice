@@ -52,18 +52,78 @@ async fn execute(
     info!("Executing request {}", request.request_id);
 
     let execution_id = Uuid::new_v4().to_string();
-
+    
     if request.script_content.is_none() {
+        let error_message = "Script content is required for Rust runtime";
+        
+        if let Ok(db_logging_enabled) = std::env::var("DB_LOGGING_ENABLED") {
+            if db_logging_enabled == "true" {
+                if let Ok(db_url) = std::env::var("DATABASE_URL") {
+                    if let Ok(client) = tokio_postgres::connect(&db_url, tokio_postgres::NoTls).await {
+                        let (client, connection) = client;
+                        
+                        tokio::spawn(async move {
+                            if let Err(e) = connection.await {
+                                error!("Database connection error: {}", e);
+                            }
+                        });
+                        
+                        let _ = client.execute(
+                            "INSERT INTO public.error_logs 
+                            (request_log_id, error_code, error_message, context) 
+                            VALUES ($1, $2, $3, $4)",
+                            &[
+                                &request.request_id,
+                                &"MISSING_SCRIPT_CONTENT",
+                                &error_message,
+                                &serde_json::to_string(&request.params).unwrap_or_default(),
+                            ],
+                        ).await;
+                    }
+                }
+            }
+        }
+        
         return HttpResponse::BadRequest().json(serde_json::json!({
-            "error": "Script content is required for Rust runtime"
+            "error": error_message
         }));
     }
-
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let execution_time = start_time.elapsed().as_millis() as u64;
     info!("Request {} executed successfully in {}ms", request.request_id, execution_time);
+    
+    if let Ok(db_logging_enabled) = std::env::var("DB_LOGGING_ENABLED") {
+        if db_logging_enabled == "true" {
+            if let Ok(db_url) = std::env::var("DATABASE_URL") {
+                if let Ok(client) = tokio_postgres::connect(&db_url, tokio_postgres::NoTls).await {
+                    let (client, connection) = client;
+                    
+                    tokio::spawn(async move {
+                        if let Err(e) = connection.await {
+                            error!("Database connection error: {}", e);
+                        }
+                    });
+                    
+                    let _ = client.execute(
+                        "INSERT INTO public.request_logs 
+                        (request_id, language_title, request_payload, response_payload, status_code, duration_ms, runtime_metrics) 
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                        &[
+                            &request.request_id,
+                            &request.context.get("language_title").and_then(|v| v.as_str()).unwrap_or("default"),
+                            &serde_json::to_string(&request.params).unwrap_or_default(),
+                            &serde_json::to_string(&serde_json::json!({"result": "Simulated Rust WebAssembly execution result"})).unwrap_or_default(),
+                            &200i32,
+                            &(execution_time as i32),
+                            &serde_json::to_string(&serde_json::json!({"memory_usage_bytes": 1024 * 1024})).unwrap_or_default(),
+                        ],
+                    ).await;
+                }
+            }
+        }
+    }
 
     HttpResponse::Ok().json(ExecuteResponse {
         result: serde_json::json!({

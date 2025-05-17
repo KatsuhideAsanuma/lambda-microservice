@@ -2,6 +2,9 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Install PostgreSQL client for database logging
+RUN apk add --no-cache postgresql-client
+
 # Install dependencies
 COPY package.json package-lock.json ./
 RUN npm ci --production

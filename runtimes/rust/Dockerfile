@@ -22,9 +22,9 @@ FROM debian:bullseye-slim
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies including PostgreSQL client
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get install -y --no-install-recommends ca-certificates postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from the builder stage

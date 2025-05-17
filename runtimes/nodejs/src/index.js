@@ -54,6 +54,34 @@ app.post('/execute', async (req, res) => {
         const languageTitle = context.language_title || 'default';
         scriptToExecute = require(`./scripts/${languageTitle}.js`);
       } catch (err) {
+        logger.error(`Failed to load script for language title ${context.language_title || 'default'}: ${err.message}`);
+        
+        if (process.env.DB_LOGGING_ENABLED === 'true' && process.env.DB_CONNECTION_STRING) {
+          try {
+            const { Pool } = require('pg');
+            const pool = new Pool({
+              connectionString: process.env.DB_CONNECTION_STRING,
+            });
+            
+            await pool.query(
+              `INSERT INTO public.error_logs 
+              (request_log_id, error_code, error_message, stack_trace, context) 
+              VALUES ($1, $2, $3, $4, $5)`,
+              [
+                request_id, 
+                'SCRIPT_NOT_FOUND',
+                `Script not found for language title: ${context.language_title || 'default'}`,
+                err.stack,
+                JSON.stringify({ params, context })
+              ]
+            );
+            
+            await pool.end();
+          } catch (dbErr) {
+            logger.error(`Failed to log error to database: ${dbErr.message}`);
+          }
+        }
+        
         return res.status(404).json({
           error: `Script not found for language title: ${context.language_title || 'default'}`
         });
@@ -61,12 +89,17 @@ app.post('/execute', async (req, res) => {
     }
 
     const vm = new VM({
-      timeout: 5000, // 5 seconds timeout
+      timeout: parseInt(process.env.SCRIPT_TIMEOUT_MS || '5000'), // Configurable timeout
       sandbox: {
         console: {
           log: (...args) => logger.info(`[${request_id}] ${args.join(' ')}`),
           error: (...args) => logger.error(`[${request_id}] ${args.join(' ')}`),
           warn: (...args) => logger.warn(`[${request_id}] ${args.join(' ')}`)
+        },
+        process: {
+          env: {
+            NODE_ENV: process.env.NODE_ENV
+          }
         }
       }
     });
@@ -91,6 +124,37 @@ app.post('/execute', async (req, res) => {
 
     logger.info(`Request ${request_id} executed successfully in ${executionTime}ms`);
 
+    if (process.env.DB_LOGGING_ENABLED === 'true' && process.env.DB_CONNECTION_STRING) {
+      try {
+        const { Pool } = require('pg');
+        const pool = new Pool({
+          connectionString: process.env.DB_CONNECTION_STRING,
+        });
+        
+        await pool.query(
+          `INSERT INTO public.request_logs 
+          (request_id, language_title, request_payload, response_payload, status_code, duration_ms, runtime_metrics) 
+          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            request_id, 
+            context.language_title || 'default',
+            JSON.stringify(params),
+            JSON.stringify(result),
+            200,
+            executionTime,
+            JSON.stringify({
+              memory_usage_bytes: memoryUsed,
+              memory_usage_mb: Math.round(memoryUsed / 1024 / 1024 * 100) / 100
+            })
+          ]
+        );
+        
+        await pool.end();
+      } catch (dbErr) {
+        logger.error(`Failed to log execution to database: ${dbErr.message}`);
+      }
+    }
+
     res.status(200).json({
       result,
       execution_time_ms: executionTime,
@@ -99,6 +163,32 @@ app.post('/execute', async (req, res) => {
   } catch (error) {
     logger.error(`Error executing request ${request_id}: ${error.message}`);
     logger.error(error.stack);
+
+    if (process.env.DB_LOGGING_ENABLED === 'true' && process.env.DB_CONNECTION_STRING) {
+      try {
+        const { Pool } = require('pg');
+        const pool = new Pool({
+          connectionString: process.env.DB_CONNECTION_STRING,
+        });
+        
+        await pool.query(
+          `INSERT INTO public.error_logs 
+          (request_log_id, error_code, error_message, stack_trace, context) 
+          VALUES ($1, $2, $3, $4, $5)`,
+          [
+            request_id, 
+            'EXECUTION_ERROR',
+            error.message,
+            error.stack,
+            JSON.stringify({ params, context })
+          ]
+        );
+        
+        await pool.end();
+      } catch (dbErr) {
+        logger.error(`Failed to log error to database: ${dbErr.message}`);
+      }
+    }
 
     res.status(500).json({
       error: error.message,

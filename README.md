@@ -1,140 +1,120 @@
-# lambda-microservice
-# 高速ラムダマイクロサービス基盤 設計書
+# Lambda Microservice
 
-## 1. 概要
+高速ラムダマイクロサービス基盤の実装
 
-本設計書は、以下の技術スタックで構築するマイクロサービス形式の高速ラムダ実行基盤の全体像を示します。
+## 概要
 
-* **APIゲートウェイ**: Envoy Proxy
-* **FaaSランタイム**: OpenFaaS (Kubernetes上)
-* **基盤コード**: Rust
-* **スクリプト実行環境**: Node.js / Rust / Python（スイッチ可能）
-* **コンテナ管理**: Docker + Kubernetes (EKS/GKE)
-* **キャッシュ**: Redis
-* **永続化(DL)**: PostgreSQL（処理ログ・スクリプト保存）
-* **監視・可視化**: Prometheus + Grafana
-* **ログ収集**: Elastic Stack
-* **サービスディスカバリー**: Kubernetes Service Discovery
+このプロジェクトは、複数のプログラミング言語（Node.js、Python、Rust）でコードを実行できるマイクロサービス基盤を提供します。
 
-この基盤は、外部からのAPIリクエストを受けて、初期化リクエスト時に登録されたスクリプト本体を、リクエストヘッダ内のスクリプト言語タイトルに応じた対応するランタイムコンテナで実行し、その実行ログとスクリプト本体をPostgreSQLに永続化します。Jupyter Notebookのように、スクリプト本体を動的に登録・実行できる柔軟性を持ちます。
+### 主要コンポーネント
 
----
+- **Rustコントローラ**: リクエストを処理し、適切なランタイムにルーティングします。Language-Titleヘッダに基づいて動的にランタイムを選択します。
+- **実行コンテナ**: Node.js、Python、Rustの各言語用のランタイム環境を提供します。
+- **データストア**: Redisをキャッシュとして使用し、PostgreSQLでログを永続化します。
+- **監視**: Prometheus、Grafana、Elastic Stackを使用して監視とロギングを行います。
 
-## 2. システム構成図
+## 新機能
 
-```plaintext
-[Internet]
-    ↓
-[Envoy Proxy]
-    ↓
-[OpenFaaS API Gateway]
-    ↓
-[Rustベース コントローラ]
-    ├─→ [Node.js 実行コンテナ]
-    ├─→ [Python 実行コンテナ]
-    └─→ [Rust 実行コンテナ]
-         ↓
-      [Redis キャッシュ]
-         ↓
-   [PostgreSQL (処理ログ永続化)]
-         ↓
-[Elastic Stack / Prometheus + Grafana 監視]
+- **データベースログ永続化**: 実行リクエストとエラーをPostgreSQLに自動的に記録します。
+- **拡張エラーハンドリング**: すべてのランタイムで一貫したエラーハンドリングを実装しています。
+- **最適化されたコンテナ間通信**: 効率的なHTTP通信とJSON形式の標準化を行いました。
+- **データベースマイグレーション**: バージョン管理されたマイグレーションスクリプトを提供します。
+
+## セットアップ方法
+
+### 前提条件
+
+- Docker と Docker Compose
+- PostgreSQL クライアント（psql）
+- curl, jq（テスト用）
+
+### インストール手順
+
+1. リポジトリをクローン:
+
+```bash
+git clone https://github.com/KatsuhideAsanuma/lambda-microservice.git
+cd lambda-microservice
 ```
 
----
+2. データベースを起動してマイグレーションを実行:
 
-## 3. コンポーネント詳細
+```bash
+docker-compose up -d postgres
+./scripts/migrate_database.sh
+```
 
-### 3.1 Envoy Proxy
+3. サンプルデータを初期化:
 
-* **役割**: 外部からのAPIリクエストを受け付け、高速ルーティングを提供
-* **設定**:
+```bash
+./scripts/init_sample_data.sh
+```
 
-  * TLS終端
-  * リクエストヘッダフィルタ（Language-Title ヘッダ抽出）
-  * OpenFaaS Gatewayへのルーティング
+4. サービスを起動:
 
-### 3.2 OpenFaaS
+```bash
+docker-compose up -d
+```
 
-* **役割**: FaaS管理・スケール、REST APIインターフェース提供
-* **設定**:
+5. ランタイムをテスト:
 
-  * Kubernetes上にデプロイ
-  * HTTPリクエストをRustコントローラへフォワーディング
+```bash
+./scripts/test_runtimes.sh
+```
 
-### 3.3 Rustベース コントローラ
+## API エンドポイント
 
-* **役割**: リクエストヘッダのLanguage-Titleを読み取り、該当ランタイムへディスパッチ
-* **主な機能**:
+### 初期化 API
 
-  1. ヘッダ解析
-  2. ワークフロー制御
-  3. キャッシュ参照/更新 (Redis)
-  4. 実行結果受信
-  5. 処理ログ永続化 (PostgreSQL)
+```
+POST /api/v1/initialize
+Header: Language-Title: <language>-<title>
+Body: {
+  "context": { ... },
+  "script_content": "..."
+}
+```
 
-### 3.4 スクリプト実行コンテナ
+### 実行 API
 
-* **種類**: Node.js / Python / Rust
-* **起動方式**: Dockerイメージ
-* **機能**:
+```
+POST /api/v1/execute/{request_id}
+Body: {
+  "params": { ... }
+}
+```
 
-  * FaaSコントローラからのパラメータ受信
-  * ビジネスロジック実行
-  * 結果をコントローラに返却
+## データベーススキーマ
 
-### 3.5 Redis
+主要なテーブル:
 
-* **用途**: レートリミット、セッションキャッシュなど低レイテンシ用途
+- **request_logs**: リクエスト実行ログ
+- **error_logs**: エラーログ
+- **functions**: 関数メタデータ
+- **scripts**: スクリプト本体
 
-### 3.6 PostgreSQL
+## 開発ガイド
 
-* **用途**: 全ての処理リクエスト/レスポンスのログ永続化
-* **スキーマ例**:
+### 新しいランタイムの追加
 
-  * `request_logs` (id, timestamp, language\_title, payload, status, duration)
+1. ランタイムコンテナの Dockerfile を作成
+2. docker-compose.yml に新しいサービスを追加
+3. コントローラの設定を更新
 
-### 3.7 監視・ログ収集
+### データベースマイグレーション
 
-* **Prometheus**: RustコントローラおよびFaaSメトリクス収集
-* **Grafana**: メトリクス可視化ダッシュボード
-* **Elastic Stack**: 処理ログの全文検索・可視化
+新しいマイグレーションスクリプトを作成:
 
----
+```bash
+touch database/migrations/V<version>__<description>.sql
+```
 
-## 4. データフロー
+マイグレーションを実行:
 
-1. クライアントからHTTPリクエスト (Language-Titleヘッダ付き) → Envoy
-2. Envoy → OpenFaaS Gateway → Rustコントローラ
-3. Rustコントローラ:
+```bash
+./scripts/migrate_database.sh
+```
 
-   * ヘッダ解析 → 対象ランタイム選択
-   * Redisキャッシュチェック（存在すればキャッシュ返却）
-   * コンテナ起動 or コールドスタート不要なら既存コンテナへ
-4. スクリプト実行
-5. 結果 → Rustコントローラ受信
-6. 処理ログをPostgreSQLにINSERT
-7. 結果をクライアントへ返却
-8. Prometheus, Elastic Stackにメトリクス・ログを流す
+## 設計ドキュメント
 
----
-
-## 5. 非機能要件
-
-| 項目     | 要件                          |
-| ------ | --------------------------- |
-| レイテンシ  | 99パーセンタイルで < 100ms          |
-| スループット | 水平スケールで秒間1,000リクエスト以上       |
-| 可用性    | 99.9%                       |
-| セキュリティ | TLS、認可認証ヘッダー検証              |
-| 拡張性    | 新言語コンテナ追加はDockerイメージと設定追加のみ |
-
----
-
-## 6. 運用・拡張
-
-* **新スクリプト言語追加**: Dockerイメージ作成＋OpenFaaSテンプレート登録
-* **水平スケール**: Kubernetes HPA設定で自動スケールアウト
-* **バージョン管理**: GitOps (ArgoCD等) でマニフェスト管理
-* **CI/CD**: GitHub Actions → Dockerイメージビルド → ECR/GCR → ArgoCDデプロイ
-
+詳細な設計ドキュメントは [docs/](./docs/) ディレクトリにあります。

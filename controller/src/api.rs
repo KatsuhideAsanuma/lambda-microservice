@@ -72,18 +72,44 @@ async fn initialize(
     req: HttpRequest,
     session_manager: Data<Arc<dyn SessionManagerTrait>>,
     config: Data<Config>,
+    db_logger: Data<Arc<crate::logger::DatabaseLogger>>,
     body: Json<InitializeRequest>,
 ) -> HttpResponse {
+    let start_time = std::time::Instant::now();
+    let client_ip = req.connection_info().realip_remote_addr().map(|s| s.to_string());
+    
     let language_title = match req.headers().get("Language-Title") {
         Some(value) => match value.to_str() {
             Ok(value) => value.to_string(),
             Err(_) => {
+                let request_id = uuid::Uuid::new_v4().to_string();
+                let _ = db_logger.log_error(
+                    &request_id,
+                    "INVALID_HEADER",
+                    "Invalid Language-Title header",
+                    None,
+                    Some(serde_json::json!({
+                        "context": body.context
+                    })),
+                ).await;
+                
                 return HttpResponse::BadRequest().json(serde_json::json!({
                     "error": "Invalid Language-Title header"
                 }))
             }
         },
         None => {
+            let request_id = uuid::Uuid::new_v4().to_string();
+            let _ = db_logger.log_error(
+                &request_id,
+                "MISSING_HEADER",
+                "Missing Language-Title header",
+                None,
+                Some(serde_json::json!({
+                    "context": body.context
+                })),
+            ).await;
+            
             return HttpResponse::BadRequest().json(serde_json::json!({
                 "error": "Missing Language-Title header"
             }))
@@ -98,6 +124,19 @@ async fn initialize(
 
     if let Some(script_content) = &body.script_content {
         if script_content.len() > config.runtime_config.max_script_size {
+            let request_id = uuid::Uuid::new_v4().to_string();
+            let _ = db_logger.log_error(
+                &request_id,
+                "SCRIPT_TOO_LARGE",
+                "Script content exceeds maximum size",
+                None,
+                Some(serde_json::json!({
+                    "language_title": language_title,
+                    "script_size": script_content.len(),
+                    "max_size": config.runtime_config.max_script_size
+                })),
+            ).await;
+            
             return HttpResponse::BadRequest().json(serde_json::json!({
                 "error": "Script content exceeds maximum size"
             }));
@@ -106,20 +145,57 @@ async fn initialize(
 
     match session_manager
         .create_session(
-            language_title,
-            user_id,
+            language_title.clone(),
+            user_id.clone(),
             body.context.clone(),
             body.script_content.clone(),
             body.compile_options.clone(),
         )
         .await
     {
-        Ok(session) => HttpResponse::Ok().json(InitializeResponse {
-            request_id: session.request_id,
-            status: "initialized".to_string(),
-            expires_at: session.expires_at.to_rfc3339(),
-        }),
+        Ok(session) => {
+            let duration = start_time.elapsed().as_millis() as i32;
+            
+            let _ = db_logger.log_request(
+                &session.request_id,
+                &language_title,
+                client_ip.as_deref(),
+                user_id.as_deref(),
+                None,
+                Some(serde_json::json!({
+                    "context": body.context,
+                    "script_size": body.script_content.as_ref().map(|s| s.len())
+                })),
+                Some(serde_json::json!({
+                    "request_id": session.request_id,
+                    "status": "initialized"
+                })),
+                200,
+                duration,
+                false,
+                None,
+                None,
+            ).await;
+            
+            HttpResponse::Ok().json(InitializeResponse {
+                request_id: session.request_id,
+                status: "initialized".to_string(),
+                expires_at: session.expires_at.to_rfc3339(),
+            })
+        },
         Err(err) => {
+            let request_id = uuid::Uuid::new_v4().to_string();
+            let _ = db_logger.log_error(
+                &request_id,
+                "SESSION_CREATION_ERROR",
+                &format!("Failed to create session: {}", err),
+                None,
+                Some(serde_json::json!({
+                    "language_title": language_title,
+                    "context": body.context
+                })),
+            ).await;
+            
             HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": format!("Failed to create session: {}", err)
             }))
@@ -130,20 +206,45 @@ async fn initialize(
 #[post("/api/v1/execute/{request_id}")]
 async fn execute(
     path: Path<String>,
+    req: HttpRequest,
     session_manager: Data<Arc<dyn SessionManagerTrait>>,
     runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
+    db_logger: Data<Arc<crate::logger::DatabaseLogger>>,
     body: Json<ExecuteRequest>,
 ) -> HttpResponse {
+    let start_time = std::time::Instant::now();
     let request_id = path.into_inner();
-
+    
+    let client_ip = req.connection_info().realip_remote_addr().map(|s| s.to_string());
+    
     let session = match session_manager.get_session(&request_id).await {
         Ok(Some(session)) => session,
         Ok(None) => {
+            let _ = db_logger.log_error(
+                &request_id,
+                "SESSION_NOT_FOUND",
+                &format!("Session not found or expired for request_id: {}", request_id),
+                None,
+                Some(serde_json::json!({
+                    "params": body.params
+                })),
+            ).await;
+            
             return HttpResponse::NotFound().json(serde_json::json!({
                 "error": "Session not found or expired"
             }))
         }
         Err(err) => {
+            let _ = db_logger.log_error(
+                &request_id,
+                "DATABASE_ERROR",
+                &format!("Failed to get session: {}", err),
+                None,
+                Some(serde_json::json!({
+                    "params": body.params
+                })),
+            ).await;
+            
             return HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": format!("Failed to get session: {}", err)
             }))
@@ -152,9 +253,40 @@ async fn execute(
 
     match runtime_manager.execute(&session, body.params.clone()).await {
         Ok(response) => {
+            let duration = start_time.elapsed().as_millis() as i32;
+            
+            let _ = db_logger.log_request(
+                &request_id,
+                &session.language_title,
+                client_ip.as_deref(),
+                session.user_id.as_deref(),
+                None,
+                Some(body.params.clone()),
+                Some(response.result.clone()),
+                200,
+                duration,
+                false,
+                None,
+                Some(serde_json::json!({
+                    "execution_time_ms": response.execution_time_ms,
+                    "memory_usage_bytes": response.memory_usage_bytes
+                })),
+            ).await;
+            
             let mut updated_session = session.clone();
             updated_session.update_after_execution();
             if let Err(err) = session_manager.update_session(&updated_session).await {
+                let _ = db_logger.log_error(
+                    &request_id,
+                    "SESSION_UPDATE_ERROR",
+                    &format!("Failed to update session: {}", err),
+                    None,
+                    Some(serde_json::json!({
+                        "session_id": session.request_id,
+                        "language_title": session.language_title
+                    })),
+                ).await;
+                
                 return HttpResponse::InternalServerError().json(serde_json::json!({
                     "error": format!("Failed to update session: {}", err)
                 }));
@@ -168,6 +300,36 @@ async fn execute(
             })
         }
         Err(err) => {
+            let duration = start_time.elapsed().as_millis() as i32;
+            
+            let _ = db_logger.log_request(
+                &request_id,
+                &session.language_title,
+                client_ip.as_deref(),
+                session.user_id.as_deref(),
+                None,
+                Some(body.params.clone()),
+                None,
+                500,
+                duration,
+                false,
+                Some(serde_json::json!({
+                    "error": err.to_string()
+                })),
+                None,
+            ).await;
+            
+            let _ = db_logger.log_error(
+                &request_id,
+                "EXECUTION_ERROR",
+                &err.to_string(),
+                None,
+                Some(serde_json::json!({
+                    "language_title": session.language_title,
+                    "params": body.params
+                })),
+            ).await;
+            
             HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": format!("Failed to execute function: {}", err)
             }))
