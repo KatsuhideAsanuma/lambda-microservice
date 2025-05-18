@@ -56,21 +56,26 @@ impl ProtocolAdapter for JsonProtocolAdapter {
     }
 }
 
+mod grpc;
+use grpc::GrpcProtocolAdapter;
+
 pub struct ProtocolFactory {
     json_adapter: Arc<JsonProtocolAdapter>,
+    grpc_adapter: Arc<GrpcProtocolAdapter>,
 }
 
 impl ProtocolFactory {
     pub fn new() -> Self {
         Self {
             json_adapter: Arc::new(JsonProtocolAdapter::new()),
+            grpc_adapter: Arc::new(GrpcProtocolAdapter::new()),
         }
     }
     
     pub fn get_adapter(&self, protocol_type: ProtocolType) -> Result<Arc<dyn ProtocolAdapter>> {
         match protocol_type {
             ProtocolType::Json => Ok(self.json_adapter.clone()),
-            ProtocolType::Grpc => Err(Error::Runtime("gRPC protocol not yet implemented".to_string())),
+            ProtocolType::Grpc => Ok(self.grpc_adapter.clone()),
         }
     }
 }
@@ -83,6 +88,6 @@ mod tests {
     fn test_protocol_factory_creation() {
         let factory = ProtocolFactory::new();
         assert!(factory.get_adapter(ProtocolType::Json).is_ok());
-        assert!(factory.get_adapter(ProtocolType::Grpc).is_err());
+        assert!(factory.get_adapter(ProtocolType::Grpc).is_ok());
     }
 }

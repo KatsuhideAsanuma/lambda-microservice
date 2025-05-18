@@ -220,10 +220,102 @@ fn create_wasm_module(
     script_content: &str,
     memory_config: wasmtime::MemoryType,
 ) -> Result<Module, Box<dyn std::error::Error>> {
+    use std::fs::{self, File};
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::process::Command;
+    use tempfile::tempdir;
     
-    let wasm_bytes = include_bytes!("../assets/example.wasm");
+    let temp_dir = tempdir()?;
+    let project_path = temp_dir.path();
     
-    let module = Module::new(engine, wasm_bytes)?;
+    let status = Command::new("cargo")
+        .args(&["init", "--lib"])
+        .current_dir(project_path)
+        .status()?;
+        
+    if !status.success() {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other, 
+            "Failed to initialize Rust project"
+        )));
+    }
+    
+    let cargo_toml = r#"
+[package]
+name = "wasm_module"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+"#;
+    
+    let cargo_path = project_path.join("Cargo.toml");
+    fs::write(cargo_path, cargo_toml)?;
+    
+    let wrapper_script = format!(r#"
+use wasm_bindgen::prelude::*;
+use serde_json::{{self, Value}};
+
+#[wasm_bindgen]
+pub fn run(input_ptr: i32, input_len: i32) -> String {{
+    let input_bytes = unsafe {{ 
+        let ptr = input_ptr as *const u8;
+        std::slice::from_raw_parts(ptr, input_len as usize)
+    }};
+    
+    let input_str = match String::from_utf8(input_bytes.to_vec()) {{
+        Ok(s) => s,
+        Err(_) => return "{{\"error\": \"Invalid UTF-8 input\"}}".to_string(),
+    }};
+    
+    let params: Value = match serde_json::from_str(&input_str) {{
+        Ok(v) => v,
+        Err(_) => return "{{\"error\": \"Invalid JSON input\"}}".to_string(),
+    }};
+    
+    fn user_function(params: &Value) -> Value {{
+        {}
+    }}
+    
+    match serde_json::to_string(&user_function(&params)) {{
+        Ok(result) => result,
+        Err(_) => "{{\"error\": \"Failed to serialize result\"}}".to_string(),
+    }}
+}}
+"#, script_content);
+    
+    let lib_path = project_path.join("src").join("lib.rs");
+    fs::write(lib_path, wrapper_script)?;
+    
+    let status = Command::new("wasm-pack")
+        .args(&[
+            "build", 
+            "--dev",  // 開発速度重視
+            "--target", "bundler",  // バンドラー向け
+            "--typescript",  // 型定義生成
+            "--out-dir", "pkg"
+        ])
+        .current_dir(project_path)
+        .status()?;
+        
+    if !status.success() {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other, 
+            "Failed to build WebAssembly module"
+        )));
+    }
+    
+    let wasm_path = project_path.join("pkg").join("wasm_module_bg.wasm");
+    let wasm_bytes = fs::read(wasm_path)?;
+    
+    let module = Module::new(engine, &wasm_bytes)?;
     
     Ok(module)
 }
