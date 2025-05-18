@@ -2014,6 +2014,7 @@ dependencies = [
  "once_cell",
  "postgres-types",
  "redis",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
