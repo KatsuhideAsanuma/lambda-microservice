@@ -28,7 +28,7 @@ services:
       
   # OpenFaaS Provider
   faas-provider:
-    image: openfaas/faas-provider:0.8.1
+    image: functions/faas-netes:latest
     environment:
       - functions_namespace=lambda-microservice
     volumes:
