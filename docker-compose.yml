@@ -17,7 +17,7 @@ services:
       
   # OpenFaaS Gateway
   gateway:
-    image: openfaas/gateway:0.24.0
+    image: ghcr.io/openfaas/gateway:latest
     environment:
       - functions_provider_url=http://faas-provider:8080/
       - direct_functions=true
