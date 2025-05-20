@@ -81,6 +81,15 @@ impl Config {
                     })?,
                 openfaas_gateway_url: env::var("OPENFAAS_GATEWAY_URL")
                     .unwrap_or_else(|_| "http://gateway.openfaas:8080".to_string()),
+                selection_strategy: env::var("RUNTIME_SELECTION_STRATEGY")
+                    .ok()
+                    .map(|s| s.to_string()),
+                runtime_mappings_file: env::var("RUNTIME_MAPPINGS_FILE")
+                    .ok()
+                    .map(|s| s.to_string()),
+                kubernetes_namespace: env::var("KUBERNETES_NAMESPACE")
+                    .ok()
+                    .map(|s| s.to_string()),
             },
         })
     }
@@ -214,6 +223,10 @@ mod tests {
             runtime_max_retries: 5,
             max_script_size: 2097152,
             wasm_compile_timeout_seconds: 90,
+            openfaas_gateway_url: "http://gateway.openfaas:8080".to_string(),
+            selection_strategy: None,
+            runtime_mappings_file: None,
+            kubernetes_namespace: None,
         };
 
         let config = Config::from_values(
