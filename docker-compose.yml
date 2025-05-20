@@ -17,7 +17,7 @@ services:
       
   # OpenFaaS Gateway
   gateway:
-    image: openfaas/gateway:0.24.0
+    image: ghcr.io/openfaas/gateway:latest
     environment:
       - functions_provider_url=http://faas-provider:8080/
       - direct_functions=true
@@ -28,7 +28,7 @@ services:
       
   # OpenFaaS Provider
   faas-provider:
-    image: openfaas/faas-provider:0.8.1
+    image: functions/faas-netes:latest
     environment:
       - functions_namespace=lambda-microservice
     volumes:
