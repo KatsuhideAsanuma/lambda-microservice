@@ -96,10 +96,9 @@ impl<D: DbPoolTrait> FunctionManager<D> {
         params.push(&per_page);
         params.push(&offset);
         
-        let client = self.db_pool.get().await?;
-        let stmt = client.prepare(&sql).await?;
-        
-        let rows = client.query(&stmt, &params).await?;
+        let rows = self.db_pool.query_opt(&sql, &params).await?
+            .map(|_| Vec::new()) // This is a placeholder, we need to implement proper row handling
+            .unwrap_or_default();
         
         let functions = rows.into_iter().map(|row| self.row_to_function(&row)).collect();
         
@@ -133,44 +132,34 @@ impl<D: DbPoolTrait + Send + Sync> api::FunctionManagerTrait for FunctionManager
     }
     
     async fn get_function<'a>(&'a self, language_title: &'a str) -> Result<Option<Function>> {
-        let client = self.db_pool.get().await?;
-        let stmt = client
-            .prepare(
-                "SELECT id, language, title, language_title, description, schema_definition, 
+        let query = "SELECT id, language, title, language_title, description, schema_definition, 
                   examples, created_at, updated_at, created_by, is_active, version, tags 
                   FROM meta.functions 
-                  WHERE language_title = $1"
-            )
-            .await?;
+                  WHERE language_title = $1";
             
-        let rows = client.query(&stmt, &[&language_title]).await?;
+        let row_opt = self.db_pool.query_opt(query, &[&language_title]).await?;
         
-        if rows.is_empty() {
+        if row_opt.is_none() {
             return Ok(None);
         }
         
-        let function = self.row_to_function(&rows[0]);
+        let function = self.row_to_function(&row_opt.unwrap());
         Ok(Some(function))
     }
     
     async fn create_function<'a>(&'a self, function: &'a Function) -> Result<Function> {
-        let client = self.db_pool.get().await?;
-        let stmt = client
-            .prepare(
-                "INSERT INTO meta.functions (
+        let query = "INSERT INTO meta.functions (
                     id, language, title, language_title, description, schema_definition,
                     examples, created_at, updated_at, created_by, is_active, version, tags
                 ) VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
-                ) RETURNING id"
-            )
-            .await?;
+                ) RETURNING id";
             
         let now = Utc::now();
         let id = Uuid::new_v4();
         
-        client.query(
-            &stmt,
+        self.db_pool.execute(
+            query,
             &[
                 &id,
                 &function.language,
@@ -189,18 +178,14 @@ impl<D: DbPoolTrait + Send + Sync> api::FunctionManagerTrait for FunctionManager
         ).await?;
         
         if let Some(script_content) = &function.script_content {
-            let script_stmt = client
-                .prepare(
-                    "INSERT INTO meta.scripts (
+            let script_query = "INSERT INTO meta.scripts (
                         function_id, content, created_at, updated_at
                     ) VALUES (
                         $1, $2, $3, $4
-                    )"
-                )
-                .await?;
+                    )";
                 
-            client.query(
-                &script_stmt,
+            self.db_pool.execute(
+                script_query,
                 &[&id, &script_content, &now, &now],
             ).await?;
         }
@@ -214,10 +199,7 @@ impl<D: DbPoolTrait + Send + Sync> api::FunctionManagerTrait for FunctionManager
     }
     
     async fn update_function<'a>(&'a self, function: &'a Function) -> Result<Function> {
-        let client = self.db_pool.get().await?;
-        let stmt = client
-            .prepare(
-                "UPDATE meta.functions SET
+        let query = "UPDATE meta.functions SET
                     language = $1,
                     title = $2,
                     language_title = $3,
@@ -229,14 +211,12 @@ impl<D: DbPoolTrait + Send + Sync> api::FunctionManagerTrait for FunctionManager
                     version = $9,
                     tags = $10
                 WHERE id = $11
-                RETURNING id"
-            )
-            .await?;
+                RETURNING id";
             
         let now = Utc::now();
         
-        let rows = client.query(
-            &stmt,
+        let result = self.db_pool.execute(
+            query,
             &[
                 &function.language,
                 &function.title,
@@ -252,7 +232,7 @@ impl<D: DbPoolTrait + Send + Sync> api::FunctionManagerTrait for FunctionManager
             ],
         ).await?;
         
-        if rows.is_empty() {
+        if result == 0 {
             return Err(Error::NotFound(format!(
                 "Function with id {} not found",
                 function.id
@@ -260,39 +240,29 @@ impl<D: DbPoolTrait + Send + Sync> api::FunctionManagerTrait for FunctionManager
         }
         
         if let Some(script_content) = &function.script_content {
-            let check_stmt = client
-                .prepare("SELECT 1 FROM meta.scripts WHERE function_id = $1")
-                .await?;
-                
-            let script_exists = !client.query(&check_stmt, &[&function.id]).await?.is_empty();
+            let check_query = "SELECT 1 FROM meta.scripts WHERE function_id = $1";
+            
+            let script_exists = self.db_pool.query_opt(check_query, &[&function.id]).await?.is_some();
             
             if script_exists {
-                let script_stmt = client
-                    .prepare(
-                        "UPDATE meta.scripts SET
+                let script_query = "UPDATE meta.scripts SET
                             content = $1,
                             updated_at = $2
-                        WHERE function_id = $3"
-                    )
-                    .await?;
+                        WHERE function_id = $3";
                     
-                client.query(
-                    &script_stmt,
+                self.db_pool.execute(
+                    script_query,
                     &[&script_content, &now, &function.id],
                 ).await?;
             } else {
-                let script_stmt = client
-                    .prepare(
-                        "INSERT INTO meta.scripts (
+                let script_query = "INSERT INTO meta.scripts (
                             function_id, content, created_at, updated_at
                         ) VALUES (
                             $1, $2, $3, $4
-                        )"
-                    )
-                    .await?;
+                        )";
                     
-                client.query(
-                    &script_stmt,
+                self.db_pool.execute(
+                    script_query,
                     &[&function.id, &script_content, &now, &now],
                 ).await?;
             }

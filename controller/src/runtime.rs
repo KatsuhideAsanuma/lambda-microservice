@@ -553,6 +553,12 @@ mod tests {
             timeout_seconds: 30,
             max_script_size: 1048576,
             wasm_compile_timeout_seconds: 60,
+            selection_strategy: RuntimeSelectionStrategy::PrefixMatching,
+            runtime_mappings: Vec::new(),
+            kubernetes_namespace: None,
+            redis_url: None,
+            cache_ttl_seconds: 3600,
+            runtime_max_retries: 3,
         };
 
         let db_pool = MockPostgresPool::new();

@@ -186,7 +186,7 @@ impl GrpcProtocolAdapter {
         Ok(client)
     }
     
-    async fn with_retry<F, Fut, T>(&self, url: &str, operation: &str, f: F) -> Result<T>
+    async fn with_retry<F, Fut, T>(&self, url: &str, _operation: &str, f: F) -> Result<T>
     where
         F: Fn() -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<T>> + Send,
@@ -257,7 +257,7 @@ impl GrpcProtocolAdapter {
 
 #[async_trait]
 impl ProtocolAdapter for GrpcProtocolAdapter {
-    async fn send_request(&self, url: &str, payload: &[u8], timeout_ms: u64) -> Result<Vec<u8>> {
+    async fn send_request(&self, url: &str, payload: &[u8], _timeout_ms: u64) -> Result<Vec<u8>> {
         debug!("Sending gRPC request to {}", url);
         
         let payload_str = std::str::from_utf8(payload)
