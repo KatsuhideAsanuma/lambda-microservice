@@ -1,10 +1,10 @@
-FROM rust:1.77-slim as builder
+FROM rust:latest as builder
 
 WORKDIR /app
 
 # Install dependencies
 RUN apt-get update && \
-    apt-get install -y pkg-config libssl-dev && \
+    apt-get install -y pkg-config libssl-dev protobuf-compiler && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy Cargo files

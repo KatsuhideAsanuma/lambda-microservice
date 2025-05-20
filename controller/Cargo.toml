@@ -59,6 +59,8 @@ wasmtime-wasi = "9.0.3"
 # gRPC support
 tonic = "0.9.2"
 prost = "0.11.9"
+
+[build-dependencies]
 tonic-build = "0.9.2"
 
 [dev-dependencies]
