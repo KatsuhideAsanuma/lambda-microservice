@@ -440,12 +440,21 @@ async fn get_function_detail(
     }
 }
 
+#[get("/health")]
+async fn health_check() -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION")
+    }))
+}
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(initialize)
         .service(execute)
         .service(get_session_state)
         .service(get_function_list)
-        .service(get_function_detail);
+        .service(get_function_detail)
+        .service(health_check);
 }
 
 use async_trait::async_trait;
