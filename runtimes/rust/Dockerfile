@@ -2,8 +2,10 @@ FROM rust:1.68-slim as builder
 
 WORKDIR /app
 
-# Copy Cargo.toml and Cargo.lock
+# Copy Cargo.toml (Cargo.lock is optional)
 COPY Cargo.toml ./
+# Create empty Cargo.lock if it doesn't exist
+RUN touch Cargo.lock
 
 # Create dummy source file to build dependencies
 RUN mkdir -p src && \
