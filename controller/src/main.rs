@@ -43,7 +43,7 @@ async fn main() -> std::io::Result<()> {
     info!("Function manager initialized");
 
     let db_logger = Arc::new(
-        lambda_microservice_controller::logger::DatabaseLogger::new(postgres_pool.clone(), true)
+        lambda_microservice_controller::logger::DatabaseLogger::new(postgres_pool.clone().into(), true)
     );
     info!("Database logger initialized");
 
