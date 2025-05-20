@@ -6,6 +6,7 @@ use crate::{
     protocol::{ProtocolFactory, ProtocolType},
     session::{DbPoolTrait, Session},
 };
+use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 #[cfg(test)]
@@ -265,7 +266,7 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         if let Some(redis_client) = &self.redis_client {
             let cache_key = format!("wasm:{}", script_hash);
             
-            match redis_client.get::<Vec<u8>>(&cache_key).await {
+            match redis_client.get_wasm_module(&cache_key).await {
                 Ok(Some(cached_wasm)) => {
                     debug!("Using cached WebAssembly module for script hash {}", script_hash);
                     return Ok(cached_wasm);
@@ -294,9 +295,9 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         
         if let Some(redis_client) = &self.redis_client {
             let cache_key = format!("wasm:{}", script_hash);
-            let cache_ttl = self.config.cache_ttl_seconds.unwrap_or(3600);
+            let cache_ttl = self.config.cache_ttl_seconds;
             
-            if let Err(e) = redis_client.set_ex(&cache_key, &compilation_result, cache_ttl).await {
+            if let Err(e) = redis_client.cache_wasm_module(&cache_key, &compilation_result).await {
                 warn!("Failed to cache WebAssembly module: {}", e);
             } else {
                 debug!("Cached WebAssembly module for script hash {}", script_hash);
@@ -306,7 +307,11 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         Ok(compilation_result)
     }
     
-    async fn compile_with_wasmtime(&self, script_content: &str, memory_limit_bytes: u64) -> Result<Vec<u8>> {
+    async fn compile_with_wasmtime<'a>(
+        &'a self,
+        script_content: &'a str,
+        memory_limit_bytes: u64
+    ) -> Result<Vec<u8>> {
         
         let start_time = std::time::Instant::now();
         
