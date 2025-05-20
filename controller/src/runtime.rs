@@ -295,7 +295,6 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         
         if let Some(redis_client) = &self.redis_client {
             let cache_key = format!("wasm:{}", script_hash);
-            let cache_ttl = self.config.cache_ttl_seconds;
             
             if let Err(e) = redis_client.cache_wasm_module(&cache_key, &compilation_result).await {
                 warn!("Failed to cache WebAssembly module: {}", e);
@@ -309,8 +308,8 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
     
     async fn compile_with_wasmtime<'a>(
         &'a self,
-        script_content: &'a str,
-        memory_limit_bytes: u64
+        _script_content: &'a str,
+        _memory_limit_bytes: u64
     ) -> Result<Vec<u8>> {
         
         let start_time = std::time::Instant::now();
@@ -359,7 +358,7 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
             }
         };
         
-        let run = match instance.get_func(&mut store, "run") {
+        let _run = match instance.get_func(&mut store, "run") {
             Some(f) => f,
             None => {
                 error!("No 'run' function found in WebAssembly module");
@@ -418,7 +417,7 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         let retry_strategy = ExponentialBackoff::from_millis(10)
             .factor(2)
             .max_delay(Duration::from_secs(1))
-            .max_retries(self.config.runtime_max_retries as usize)
+            .take(self.config.runtime_max_retries as usize)
             .map(jitter);
 
         let client = reqwest::Client::new();

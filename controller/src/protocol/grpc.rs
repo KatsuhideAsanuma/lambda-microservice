@@ -163,10 +163,11 @@ impl GrpcProtocolAdapter {
     }
     
     async fn get_client(&self, url: &str) -> Result<RuntimeServiceClient<Channel>> {
-        let mut cache = self.client_cache.lock().unwrap();
-        
-        if let Some(client) = cache.get(url) {
-            return Ok(client.clone());
+        {
+            let cache = self.client_cache.lock().unwrap();
+            if let Some(client) = cache.get(url) {
+                return Ok(client.clone());
+            }
         }
         
         let endpoint = Endpoint::from_shared(url.to_string())
@@ -177,7 +178,10 @@ impl GrpcProtocolAdapter {
             .await
             .map_err(|e| Error::Runtime(format!("Failed to connect to gRPC endpoint: {}", e)))?;
             
-        cache.insert(url.to_string(), client.clone());
+        {
+            let mut cache = self.client_cache.lock().unwrap();
+            cache.insert(url.to_string(), client.clone());
+        }
         
         Ok(client)
     }
