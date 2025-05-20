@@ -1,4 +1,4 @@
-FROM rust:1.68-slim as builder
+FROM rust:latest as builder
 
 WORKDIR /app
 
@@ -20,13 +20,13 @@ COPY . .
 RUN cargo build --release
 
 # Create runtime image
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 WORKDIR /app
 
 # Install dependencies including PostgreSQL client
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates postgresql-client && \
+    apt-get install -y --no-install-recommends ca-certificates libssl3 postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from the builder stage
