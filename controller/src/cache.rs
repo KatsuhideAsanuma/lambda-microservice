@@ -16,6 +16,35 @@ pub struct RedisPool {
     pool: Pool,
 }
 
+#[derive(Clone)]
+pub struct RedisClient {
+    pool: RedisPool,
+    ttl_seconds: u64,
+}
+
+impl RedisClient {
+    pub async fn new(redis_url: &str) -> Result<Self> {
+        let pool = RedisPool::new(redis_url)?;
+        Ok(Self {
+            pool,
+            ttl_seconds: 3600, // Default to 1 hour TTL
+        })
+    }
+    
+    pub fn with_ttl(mut self, ttl_seconds: u64) -> Self {
+        self.ttl_seconds = ttl_seconds;
+        self
+    }
+    
+    pub async fn get_wasm_module(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        self.pool.get_value(key).await
+    }
+    
+    pub async fn cache_wasm_module(&self, key: &str, wasm_bytes: &[u8]) -> Result<()> {
+        self.pool.set_ex(key, &wasm_bytes.to_vec(), self.ttl_seconds).await
+    }
+}
+
 #[async_trait]
 impl RedisPoolTrait for RedisPool {
     async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, key: &'a str) -> Result<Option<T>> {

@@ -24,7 +24,7 @@ pub enum RuntimeType {
     Rust,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RuntimeMapping {
     pub pattern: String,
     pub runtime_type: RuntimeType,
@@ -74,6 +74,9 @@ pub struct RuntimeConfig {
     pub selection_strategy: RuntimeSelectionStrategy,
     pub runtime_mappings: Vec<RuntimeMapping>,
     pub kubernetes_namespace: Option<String>,
+    pub redis_url: Option<String>,
+    pub cache_ttl_seconds: u64,
+    pub runtime_max_retries: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -134,6 +137,9 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             selection_strategy,
             runtime_mappings,
             kubernetes_namespace: config.kubernetes_namespace.clone(),
+            redis_url: config.redis_url.as_deref().map(|s| s.to_string()),
+            cache_ttl_seconds: config.runtime_max_retries as u64 * 300, // Default TTL based on retries
+            runtime_max_retries: config.runtime_max_retries,
         };
 
         let wasm_engine = Engine::default();
