@@ -493,6 +493,12 @@ pub trait RuntimeManagerTrait {
         params: serde_json::Value,
     ) -> Result<RuntimeExecuteResponse>;
     
+    async fn compile_with_wasmtime<'a>(
+        &'a self,
+        script_content: &'a str,
+        memory_limit_bytes: u64,
+    ) -> Result<Vec<u8>>;
+    
     #[cfg(test)]
     fn get_config(&self) -> &RuntimeConfig;
 }
@@ -561,6 +567,14 @@ mod tests {
                 session: &'a Session,
                 params: serde_json::Value,
             ) -> Result<RuntimeExecuteResponse>;
+            
+            async fn compile_with_wasmtime<'a>(
+                &'a self,
+                script_content: &'a str,
+                memory_limit_bytes: u64,
+            ) -> Result<Vec<u8>> {
+                Ok(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00])
+            }
             
             async fn execute_in_container<'a>(
                 &'a self,

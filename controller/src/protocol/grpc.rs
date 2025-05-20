@@ -163,10 +163,11 @@ impl GrpcProtocolAdapter {
     }
     
     async fn get_client(&self, url: &str) -> Result<RuntimeServiceClient<Channel>> {
-        let mut cache = self.client_cache.lock().unwrap();
-        
-        if let Some(client) = cache.get(url) {
-            return Ok(client.clone());
+        {
+            let cache = self.client_cache.lock().unwrap();
+            if let Some(client) = cache.get(url) {
+                return Ok(client.clone());
+            }
         }
         
         let endpoint = Endpoint::from_shared(url.to_string())
@@ -177,12 +178,15 @@ impl GrpcProtocolAdapter {
             .await
             .map_err(|e| Error::Runtime(format!("Failed to connect to gRPC endpoint: {}", e)))?;
             
-        cache.insert(url.to_string(), client.clone());
+        {
+            let mut cache = self.client_cache.lock().unwrap();
+            cache.insert(url.to_string(), client.clone());
+        }
         
         Ok(client)
     }
     
-    async fn with_retry<F, Fut, T>(&self, url: &str, operation: &str, f: F) -> Result<T>
+    async fn with_retry<F, Fut, T>(&self, url: &str, _operation: &str, f: F) -> Result<T>
     where
         F: Fn() -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<T>> + Send,
@@ -253,7 +257,7 @@ impl GrpcProtocolAdapter {
 
 #[async_trait]
 impl ProtocolAdapter for GrpcProtocolAdapter {
-    async fn send_request(&self, url: &str, payload: &[u8], timeout_ms: u64) -> Result<Vec<u8>> {
+    async fn send_request(&self, url: &str, payload: &[u8], _timeout_ms: u64) -> Result<Vec<u8>> {
         debug!("Sending gRPC request to {}", url);
         
         let payload_str = std::str::from_utf8(payload)

@@ -6,6 +6,7 @@ use crate::{
     protocol::{ProtocolFactory, ProtocolType},
     session::{DbPoolTrait, Session},
 };
+use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 #[cfg(test)]
@@ -24,7 +25,7 @@ pub enum RuntimeType {
     Rust,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RuntimeMapping {
     pub pattern: String,
     pub runtime_type: RuntimeType,
@@ -74,6 +75,9 @@ pub struct RuntimeConfig {
     pub selection_strategy: RuntimeSelectionStrategy,
     pub runtime_mappings: Vec<RuntimeMapping>,
     pub kubernetes_namespace: Option<String>,
+    pub redis_url: Option<String>,
+    pub cache_ttl_seconds: u64,
+    pub runtime_max_retries: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -134,6 +138,9 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             selection_strategy,
             runtime_mappings,
             kubernetes_namespace: config.kubernetes_namespace.clone(),
+            redis_url: config.redis_url.as_deref().map(|s| s.to_string()),
+            cache_ttl_seconds: config.runtime_max_retries as u64 * 300, // Default TTL based on retries
+            runtime_max_retries: config.runtime_max_retries,
         };
 
         let wasm_engine = Engine::default();
@@ -259,7 +266,7 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         if let Some(redis_client) = &self.redis_client {
             let cache_key = format!("wasm:{}", script_hash);
             
-            match redis_client.get::<Vec<u8>>(&cache_key).await {
+            match redis_client.get_wasm_module(&cache_key).await {
                 Ok(Some(cached_wasm)) => {
                     debug!("Using cached WebAssembly module for script hash {}", script_hash);
                     return Ok(cached_wasm);
@@ -288,9 +295,8 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         
         if let Some(redis_client) = &self.redis_client {
             let cache_key = format!("wasm:{}", script_hash);
-            let cache_ttl = self.config.cache_ttl_seconds.unwrap_or(3600);
             
-            if let Err(e) = redis_client.set_ex(&cache_key, &compilation_result, cache_ttl).await {
+            if let Err(e) = redis_client.cache_wasm_module(&cache_key, &compilation_result).await {
                 warn!("Failed to cache WebAssembly module: {}", e);
             } else {
                 debug!("Cached WebAssembly module for script hash {}", script_hash);
@@ -300,7 +306,11 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         Ok(compilation_result)
     }
     
-    async fn compile_with_wasmtime(&self, script_content: &str, memory_limit_bytes: u64) -> Result<Vec<u8>> {
+    async fn compile_with_wasmtime<'a>(
+        &'a self,
+        _script_content: &'a str,
+        _memory_limit_bytes: u64
+    ) -> Result<Vec<u8>> {
         
         let start_time = std::time::Instant::now();
         
@@ -348,7 +358,7 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
             }
         };
         
-        let run = match instance.get_func(&mut store, "run") {
+        let _run = match instance.get_func(&mut store, "run") {
             Some(f) => f,
             None => {
                 error!("No 'run' function found in WebAssembly module");
@@ -407,7 +417,7 @@ impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
         let retry_strategy = ExponentialBackoff::from_millis(10)
             .factor(2)
             .max_delay(Duration::from_secs(1))
-            .max_retries(self.config.runtime_max_retries as usize)
+            .take(self.config.runtime_max_retries as usize)
             .map(jitter);
 
         let client = reqwest::Client::new();
@@ -543,6 +553,12 @@ mod tests {
             timeout_seconds: 30,
             max_script_size: 1048576,
             wasm_compile_timeout_seconds: 60,
+            selection_strategy: RuntimeSelectionStrategy::PrefixMatching,
+            runtime_mappings: Vec::new(),
+            kubernetes_namespace: None,
+            redis_url: None,
+            cache_ttl_seconds: 3600,
+            runtime_max_retries: 3,
         };
 
         let db_pool = MockPostgresPool::new();
