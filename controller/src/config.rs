@@ -27,6 +27,8 @@ pub struct RuntimeConfig {
     pub selection_strategy: Option<String>,
     pub runtime_mappings_file: Option<String>,
     pub kubernetes_namespace: Option<String>,
+    pub redis_url: Option<String>,
+    pub cache_ttl_seconds: Option<u64>,
 }
 
 impl Config {
@@ -90,6 +92,12 @@ impl Config {
                 kubernetes_namespace: env::var("KUBERNETES_NAMESPACE")
                     .ok()
                     .map(|s| s.to_string()),
+                redis_url: env::var("REDIS_CACHE_URL")
+                    .ok()
+                    .map(|s| s.to_string()),
+                cache_ttl_seconds: env::var("CACHE_TTL_SECONDS")
+                    .ok()
+                    .and_then(|s| s.parse().ok()),
             },
         })
     }
@@ -227,6 +235,8 @@ mod tests {
             selection_strategy: None,
             runtime_mappings_file: None,
             kubernetes_namespace: None,
+            redis_url: Some("redis://redis:6379".to_string()),
+            cache_ttl_seconds: Some(1800),
         };
 
         let config = Config::from_values(
