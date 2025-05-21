@@ -72,7 +72,7 @@ async fn initialize(
     req: HttpRequest,
     session_manager: Data<Arc<dyn SessionManagerTrait>>,
     config: Data<Config>,
-    db_logger: Data<Arc<crate::logger::DatabaseLogger>>,
+    db_logger: Data<Arc<crate::logger::DatabaseLogger<crate::database::PostgresPool>>>,
     body: Json<InitializeRequest>,
 ) -> HttpResponse {
     let start_time = std::time::Instant::now();
@@ -209,7 +209,7 @@ async fn execute(
     req: HttpRequest,
     session_manager: Data<Arc<dyn SessionManagerTrait>>,
     runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
-    db_logger: Data<Arc<crate::logger::DatabaseLogger>>,
+    db_logger: Data<Arc<crate::logger::DatabaseLogger<crate::database::PostgresPool>>>,
     body: Json<ExecuteRequest>,
 ) -> HttpResponse {
     let start_time = std::time::Instant::now();
@@ -626,8 +626,16 @@ mod tests {
                 python_runtime_url: "http://localhost:8082".to_string(),
                 rust_runtime_url: "http://localhost:8083".to_string(),
                 runtime_timeout_seconds: 30,
+                runtime_fallback_timeout_seconds: 15,
+                runtime_max_retries: 3,
                 max_script_size: 1048576,
                 wasm_compile_timeout_seconds: 60,
+                openfaas_gateway_url: "http://gateway.openfaas:8080".to_string(),
+                selection_strategy: None,
+                runtime_mappings_file: None,
+                kubernetes_namespace: None,
+                redis_url: None,
+                cache_ttl_seconds: None,
             },
         )
     }

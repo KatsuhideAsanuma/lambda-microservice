@@ -1,5 +1,5 @@
 use crate::{
-    database::PostgresPool,
+    session::DbPoolTrait,
     error::{Error, Result},
 };
 use serde_json::Value;
@@ -7,13 +7,13 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-pub struct DatabaseLogger {
-    db_pool: Arc<PostgresPool>,
+pub struct DatabaseLogger<T: DbPoolTrait + ?Sized> {
+    db_pool: Arc<T>,
     enabled: bool,
 }
 
-impl DatabaseLogger {
-    pub fn new(db_pool: Arc<PostgresPool>, enabled: bool) -> Self {
+impl<T: DbPoolTrait + ?Sized> DatabaseLogger<T> {
+    pub fn new(db_pool: Arc<T>, enabled: bool) -> Self {
         Self { db_pool, enabled }
     }
 
@@ -36,8 +36,6 @@ impl DatabaseLogger {
             return Ok(());
         }
 
-        let client = self.db_pool.get().await?;
-        
         let query = r#"
             INSERT INTO public.request_logs (
                 request_id, language_title, client_ip, user_id, 
@@ -48,25 +46,48 @@ impl DatabaseLogger {
             )
         "#;
         
-        let result = client
-            .execute(
-                query,
-                &[
-                    &request_id,
-                    &language_title,
-                    &client_ip,
-                    &user_id,
-                    &request_headers,
-                    &request_payload,
-                    &response_payload,
-                    &status_code,
-                    &duration_ms,
-                    &cached,
-                    &error_details,
-                    &runtime_metrics,
-                ],
-            )
-            .await;
+        let request_headers_str = match &request_headers {
+            Some(v) => serde_json::to_string(v).unwrap_or("{}".to_string()),
+            None => "{}".to_string(),
+        };
+        
+        let request_payload_str = match &request_payload {
+            Some(v) => serde_json::to_string(v).unwrap_or("{}".to_string()),
+            None => "{}".to_string(),
+        };
+        
+        let response_payload_str = match &response_payload {
+            Some(v) => serde_json::to_string(v).unwrap_or("{}".to_string()),
+            None => "{}".to_string(),
+        };
+        
+        let error_details_str = match &error_details {
+            Some(v) => serde_json::to_string(v).unwrap_or("{}".to_string()),
+            None => "{}".to_string(),
+        };
+        
+        let runtime_metrics_str = match &runtime_metrics {
+            Some(v) => serde_json::to_string(v).unwrap_or("{}".to_string()),
+            None => "{}".to_string(),
+        };
+        
+        let result = (*self.db_pool).execute(
+            query,
+            &[
+                &request_id,
+                &language_title,
+                &client_ip.unwrap_or(""),
+                &user_id.unwrap_or(""),
+                &request_headers_str,
+                &request_payload_str,
+                &response_payload_str,
+                &status_code,
+                &duration_ms,
+                &cached,
+                &error_details_str,
+                &runtime_metrics_str,
+            ],
+        ).await;
             
         match result {
             Ok(_) => {
@@ -92,8 +113,6 @@ impl DatabaseLogger {
             return Ok(());
         }
 
-        let client = self.db_pool.get().await?;
-        
         let query = r#"
             INSERT INTO public.error_logs (
                 request_log_id, error_code, error_message, stack_trace, context
@@ -102,18 +121,21 @@ impl DatabaseLogger {
             )
         "#;
         
-        let result = client
-            .execute(
-                query,
-                &[
-                    &request_log_id,
-                    &error_code,
-                    &error_message,
-                    &stack_trace,
-                    &context,
-                ],
-            )
-            .await;
+        let context_str = match &context {
+            Some(v) => serde_json::to_string(v).unwrap_or("{}".to_string()),
+            None => "{}".to_string(),
+        };
+        
+        let result = (*self.db_pool).execute(
+            query,
+            &[
+                &request_log_id,
+                &error_code,
+                &error_message,
+                &stack_trace.unwrap_or(""),
+                &context_str,
+            ],
+        ).await;
             
         match result {
             Ok(_) => {
