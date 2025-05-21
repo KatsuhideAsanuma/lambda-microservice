@@ -104,6 +104,7 @@ pub struct RuntimeManager<D: DbPoolTrait> {
     openfaas_client: Option<OpenFaaSClient>,
     redis_client: Option<crate::cache::RedisClient>,
     protocol_factory: Arc<ProtocolFactory>,
+    kubernetes_client: Option<crate::kubernetes::KubernetesClient>,
 }
 
 impl<D: DbPoolTrait> RuntimeManager<D> {
@@ -165,13 +166,31 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             None
         };
 
+        let kubernetes_client = if selection_strategy == RuntimeSelectionStrategy::DynamicDiscovery {
+            match crate::kubernetes::KubernetesClient::new().await {
+                Ok(client) => {
+                    info!("Kubernetes client initialized successfully");
+                    Some(client)
+                }
+                Err(err) => {
+                    warn!("Failed to initialize Kubernetes client: {}", err);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let protocol_factory = Arc::new(ProtocolFactory::new());
+
         Ok(Self {
             config: runtime_config,
             db_pool,
             wasm_engine,
             openfaas_client,
             redis_client,
-            protocol_factory: Arc::new(ProtocolFactory::new()),
+            protocol_factory,
+            kubernetes_client,
         })
     }
     
@@ -212,9 +231,58 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
                 if let Some(namespace) = &self.config.kubernetes_namespace {
                     info!("Dynamic discovery requested for '{}' in namespace '{}'", 
                           language_title, namespace);
+                    
+                    if let Some(k8s_client) = &self.kubernetes_client {
+                        let mut labels = std::collections::HashMap::new();
+                        
+                        let runtime_prefix = if language_title.starts_with("nodejs-") {
+                            labels.insert("app".to_string(), "lambda-nodejs-runtime".to_string());
+                            "nodejs-"
+                        } else if language_title.starts_with("python-") {
+                            labels.insert("app".to_string(), "lambda-python-runtime".to_string());
+                            "python-"
+                        } else if language_title.starts_with("rust-") {
+                            labels.insert("app".to_string(), "lambda-rust-runtime".to_string());
+                            "rust-"
+                        } else {
+                            return Err(Error::BadRequest(format!(
+                                "Unsupported language title for dynamic discovery: {}",
+                                language_title
+                            )));
+                        };
+                        
+                        match k8s_client.find_services(namespace, labels).await {
+                            Ok(services) if !services.is_empty() => {
+                                info!(
+                                    "Found {} services for runtime prefix '{}' in namespace '{}'",
+                                    services.len(), runtime_prefix, namespace
+                                );
+                                
+                                if runtime_prefix == "nodejs-" {
+                                    return Ok(RuntimeType::NodeJs);
+                                } else if runtime_prefix == "python-" {
+                                    return Ok(RuntimeType::Python);
+                                } else if runtime_prefix == "rust-" {
+                                    return Ok(RuntimeType::Rust);
+                                }
+                            }
+                            Ok(_) => {
+                                warn!(
+                                    "No services found for runtime prefix '{}' in namespace '{}'",
+                                    runtime_prefix, namespace
+                                );
+                            }
+                            Err(err) => {
+                                error!(
+                                    "Error in Kubernetes service discovery: {}", 
+                                    err
+                                );
+                            }
+                        }
+                    }
                 }
                 
-                warn!("Dynamic discovery not fully implemented, falling back to prefix matching");
+                warn!("Dynamic discovery failed, falling back to prefix matching");
                 RuntimeType::from_language_title(language_title)
             }
         }
