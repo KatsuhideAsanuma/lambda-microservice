@@ -28,7 +28,19 @@
 - PostgreSQL クライアント（psql）
 - curl, jq（テスト用）
 
-### インストール手順
+### クイックスタート（ローカル開発）
+
+ローカル開発環境をすばやくセットアップするには、以下のコマンドを実行してください：
+
+```bash
+git clone https://github.com/KatsuhideAsanuma/lambda-microservice.git
+cd lambda-microservice
+git checkout devin/local-development  # ローカル開発用ブランチに切り替え
+chmod +x scripts/*.sh                 # スクリプトに実行権限を付与
+./scripts/setup_local_dev.sh          # ローカル開発環境をセットアップ
+```
+
+### 手動セットアップ
 
 1. リポジトリをクローン:
 
