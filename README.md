@@ -40,6 +40,31 @@ chmod +x scripts/*.sh                 # スクリプトに実行権限を付与
 ./scripts/setup_local_dev.sh          # ローカル開発環境をセットアップ
 ```
 
+### ローカル開発環境の詳細
+
+ローカル開発ブランチ（`devin/local-development`）には、以下の機能が含まれています：
+
+1. **ルートレベルの`.env`ファイル**：ローカル開発用のデフォルト設定値を含むファイルです。Docker Compose内のサービス名を使用するように設定されています。
+
+2. **サンプルデータ初期化スクリプト**：`init_sample_data.sh`スクリプトは、以下の3つのサンプル関数を作成します：
+   - **Node.js計算機**：四則演算を実行する計算機関数
+   - **Pythonテキスト処理**：テキストの単語数カウント、文字数カウント、大文字/小文字変換などの機能
+   - **Rustデータ検証**：データの検証ルールを適用する機能
+
+3. **セットアップスクリプト**：`setup_local_dev.sh`スクリプトは、以下の処理を自動化します：
+   - 前提条件のチェック（Docker、Docker Compose、PostgreSQLクライアント）
+   - 環境変数ファイルの作成または確認
+   - データベースの起動とマイグレーション
+   - サンプルデータの初期化
+   - すべてのサービスの起動
+   - ランタイムのテスト
+
+セットアップが完了すると、以下のURLでサービスにアクセスできます：
+- Controller: http://localhost:8080
+- Node.js Runtime: http://localhost:8081
+- Python Runtime: http://localhost:8082
+- Rust Runtime: http://localhost:8083
+
 ### 手動セットアップ
 
 1. リポジトリをクローン:
