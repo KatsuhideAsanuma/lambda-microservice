@@ -101,10 +101,21 @@ docker-compose up -d
 
 ## API エンドポイント
 
+詳細なAPI仕様は[API仕様書](./docs/api/api_specification.md)を参照してください。主要なエンドポイントの概要は以下の通りです。
+
+### 認証・認可
+
+APIはJWTベースの認証を使用します。
+
+```
+Authorization: Bearer {token}
+```
+
 ### 初期化 API
 
 ```
 POST /api/v1/initialize
+Header: Authorization: Bearer {token}
 Header: Language-Title: <language>-<title>
 Body: {
   "context": { ... },
@@ -116,10 +127,33 @@ Body: {
 
 ```
 POST /api/v1/execute/{request_id}
+Header: Authorization: Bearer {token}
 Body: {
   "params": { ... }
 }
 ```
+
+### セッション状態取得 API
+
+```
+GET /api/v1/sessions/{request_id}
+Header: Authorization: Bearer {token}
+```
+
+### その他のAPI
+
+- スクリプト一覧取得: `GET /api/v1/functions`
+- スクリプト詳細取得: `GET /api/v1/functions/{language_title}`
+- ヘルスチェック: `GET /health`
+- メトリクス: `GET /metrics`
+
+### JSONスキーマとエラーコード
+
+リクエスト/レスポンスのJSONスキーマや、エラーコードの詳細については[API仕様書](./docs/api/api_specification.md)を参照してください。
+
+## 技術仕様
+
+コントローラの内部設計や内部APIの詳細については[Rust Controller 技術仕様書](./docs/technical/rust_controller_spec.md)を参照してください。
 
 ## データベーススキーマ
 
