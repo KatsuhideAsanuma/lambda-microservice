@@ -43,6 +43,21 @@ impl RedisClient {
     pub async fn cache_wasm_module(&self, key: &str, wasm_bytes: &[u8]) -> Result<()> {
         self.pool.set_ex(key, &wasm_bytes.to_vec(), self.ttl_seconds).await
     }
+    
+    pub async fn cache_runtime_type(&self, namespace: &str, language_title: &str, runtime_type: &crate::runtime::RuntimeType) -> Result<()> {
+        let cache_key = format!("k8s:runtime:{}:{}", namespace, language_title);
+        self.pool.set_ex(&cache_key, runtime_type, self.ttl_seconds).await
+    }
+    
+    pub async fn get_runtime_type(&self, namespace: &str, language_title: &str) -> Result<Option<crate::runtime::RuntimeType>> {
+        let cache_key = format!("k8s:runtime:{}:{}", namespace, language_title);
+        self.pool.get_value(&cache_key).await
+    }
+    
+    pub async fn invalidate_runtime_cache(&self, namespace: &str, language_title: &str) -> Result<()> {
+        let cache_key = format!("k8s:runtime:{}:{}", namespace, language_title);
+        self.pool.del(&cache_key).await
+    }
 }
 
 #[async_trait]

@@ -167,7 +167,7 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
         };
 
         let kubernetes_client = if selection_strategy == RuntimeSelectionStrategy::DynamicDiscovery {
-            match crate::kubernetes::KubernetesClient::new().await {
+            match crate::kubernetes::KubernetesClient::new(redis_client.clone()).await {
                 Ok(client) => {
                     info!("Kubernetes client initialized successfully");
                     Some(client)
@@ -233,6 +233,19 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
                           language_title, namespace);
                     
                     if let Some(k8s_client) = &self.kubernetes_client {
+                        match k8s_client.get_cached_runtime_type(namespace, language_title).await {
+                            Ok(Some(runtime_type)) => {
+                                info!(
+                                    "Using cached runtime type for '{}' in namespace '{}'",
+                                    language_title, namespace
+                                );
+                                return Ok(runtime_type);
+                            }
+                            _ => {
+                                debug!("No cached runtime type found, proceeding with service discovery");
+                            }
+                        }
+                        
                         let mut labels = std::collections::HashMap::new();
                         
                         let runtime_prefix = if language_title.starts_with("nodejs-") {
@@ -259,11 +272,17 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
                                 );
                                 
                                 if runtime_prefix == "nodejs-" {
-                                    return Ok(RuntimeType::NodeJs);
+                                    let runtime_type = RuntimeType::NodeJs;
+                                    let _ = k8s_client.cache_runtime_type(namespace, language_title, &runtime_type).await;
+                                    return Ok(runtime_type);
                                 } else if runtime_prefix == "python-" {
-                                    return Ok(RuntimeType::Python);
+                                    let runtime_type = RuntimeType::Python;
+                                    let _ = k8s_client.cache_runtime_type(namespace, language_title, &runtime_type).await;
+                                    return Ok(runtime_type);
                                 } else if runtime_prefix == "rust-" {
-                                    return Ok(RuntimeType::Rust);
+                                    let runtime_type = RuntimeType::Rust;
+                                    let _ = k8s_client.cache_runtime_type(namespace, language_title, &runtime_type).await;
+                                    return Ok(runtime_type);
                                 }
                             }
                             Ok(_) => {
