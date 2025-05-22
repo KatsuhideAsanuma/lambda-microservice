@@ -92,7 +92,7 @@ impl Config {
                 kubernetes_namespace: env::var("KUBERNETES_NAMESPACE")
                     .ok()
                     .map(|s| s.to_string()),
-                redis_url: env::var("REDIS_CACHE_URL")
+                redis_url: env::var("REDIS_URL")
                     .ok()
                     .map(|s| s.to_string()),
                 cache_ttl_seconds: env::var("CACHE_TTL_SECONDS")

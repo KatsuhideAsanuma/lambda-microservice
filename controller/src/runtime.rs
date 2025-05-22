@@ -76,7 +76,7 @@ pub struct RuntimeConfig {
     pub runtime_mappings: Vec<RuntimeMapping>,
     pub kubernetes_namespace: Option<String>,
     pub redis_url: Option<String>,
-    pub cache_ttl_seconds: u64,
+    pub cache_ttl_seconds: Option<u64>,
     pub runtime_max_retries: u32,
 }
 
@@ -139,7 +139,7 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             runtime_mappings,
             kubernetes_namespace: config.kubernetes_namespace.clone(),
             redis_url: config.redis_url.clone(),
-            cache_ttl_seconds: config.cache_ttl_seconds.unwrap_or(3600), // Use configured TTL or default to 3600
+            cache_ttl_seconds: Some(config.cache_ttl_seconds.unwrap_or(3600)), // Use configured TTL or default to 3600
             runtime_max_retries: config.runtime_max_retries,
         };
 
@@ -557,7 +557,7 @@ mod tests {
             runtime_mappings: Vec::new(),
             kubernetes_namespace: None,
             redis_url: None,
-            cache_ttl_seconds: 3600,
+            cache_ttl_seconds: Some(3600),
             runtime_max_retries: 3,
         };
 
@@ -612,7 +612,7 @@ mod tests {
             runtime_mappings: Vec::new(),
             kubernetes_namespace: None,
             redis_url: None,
-            cache_ttl_seconds: 3600,
+            cache_ttl_seconds: Some(3600),
             runtime_max_retries: 3,
         };
 
@@ -773,7 +773,7 @@ mod tests {
             runtime_mappings: Vec::new(),
             kubernetes_namespace: None,
             redis_url: None,
-            cache_ttl_seconds: 3600,
+            cache_ttl_seconds: Some(3600),
             runtime_max_retries: 3,
         };
 
