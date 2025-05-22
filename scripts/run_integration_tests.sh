@@ -12,7 +12,7 @@ fi
 
 echo "Running integration tests..."
 cd controller
-cargo test --features test-integration -- --ignored -v
+cargo test --features test-integration -- --ignored
 
 if [ $? -eq 0 ]; then
     echo "✅ All integration tests passed!"
