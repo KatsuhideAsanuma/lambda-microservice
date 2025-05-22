@@ -283,23 +283,29 @@ pub mod tests {
     #[ignore]
     async fn test_postgres_pool_integration() {
         let database_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/test".to_string());
+            .unwrap_or_else(|_| "postgres://postgres:postgres@postgres:5432/lambda_microservice".to_string());
+        
+        println!("Connecting to database with URL: {}", database_url);
+        
+        let pool_result = PostgresPool::new(&database_url).await;
+        if let Err(e) = &pool_result {
+            println!("Database connection error: {:?}", e);
+        }
+        assert!(pool_result.is_ok());
+        
+        let postgres_pool = pool_result.unwrap();
 
-        let pool = PostgresPool::new(&database_url).await;
-        assert!(pool.is_ok());
-
-        let pool = pool.unwrap();
-        let result = pool.execute("CREATE TABLE IF NOT EXISTS test_table (id SERIAL PRIMARY KEY, name TEXT)", &[]).await;
+        let result = postgres_pool.execute("CREATE TABLE IF NOT EXISTS test_table (id SERIAL PRIMARY KEY, name TEXT)", &[]).await;
         assert!(result.is_ok());
 
-        let result = pool.execute("INSERT INTO test_table (name) VALUES ($1) RETURNING id", &[&"test_name"]).await;
+        let result = postgres_pool.execute("INSERT INTO test_table (name) VALUES ($1) RETURNING id", &[&"test_name"]).await;
         assert!(result.is_ok());
 
-        let rows = pool.query("SELECT * FROM test_table WHERE name = $1", &[&"test_name"]).await;
+        let rows = postgres_pool.query("SELECT * FROM test_table WHERE name = $1", &[&"test_name"]).await;
         assert!(rows.is_ok());
         assert!(!rows.unwrap().is_empty());
 
-        let result = pool.execute("DROP TABLE test_table", &[]).await;
+        let result = postgres_pool.execute("DROP TABLE test_table", &[]).await;
         assert!(result.is_ok());
     }
 }
