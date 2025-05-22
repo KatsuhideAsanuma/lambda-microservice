@@ -65,9 +65,9 @@ echo "Starting sample data initialization..."
 
 NODEJS_FUNCTION_ID=$(uuidgen)
 psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "
-INSERT INTO meta.functions (id, language, title, description, tags, is_active, timeout_seconds)
-VALUES ('$NODEJS_FUNCTION_ID', 'nodejs', 'calculator', '四則演算を実行する計算機関数', 
-        ARRAY['math', 'calculator'], true, 30);
+INSERT INTO meta.functions (id, language, title, language_title, description, tags, is_active)
+VALUES ('$NODEJS_FUNCTION_ID', 'nodejs', 'calculator', 'nodejs-calculator', '四則演算を実行する計算機関数', 
+        ARRAY['math', 'calculator'], true);
 
 INSERT INTO meta.scripts (function_id, content)
 VALUES ('$NODEJS_FUNCTION_ID', 'const operations = {
@@ -87,9 +87,9 @@ return { result: operations[operation](a, b) };');"
 
 PYTHON_FUNCTION_ID=$(uuidgen)
 psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "
-INSERT INTO meta.functions (id, language, title, description, tags, is_active, timeout_seconds)
-VALUES ('$PYTHON_FUNCTION_ID', 'python', 'text-processor', 'テキスト処理機能を提供', 
-        ARRAY['text', 'nlp'], true, 30);
+INSERT INTO meta.functions (id, language, title, language_title, description, tags, is_active)
+VALUES ('$PYTHON_FUNCTION_ID', 'python', 'text-processor', 'python-text-processor', 'テキスト処理機能を提供', 
+        ARRAY['text', 'nlp'], true);
 
 INSERT INTO meta.scripts (function_id, content)
 VALUES ('$PYTHON_FUNCTION_ID', 'import re
@@ -115,9 +115,9 @@ return {\"result\": result}');"
 
 RUST_FUNCTION_ID=$(uuidgen)
 psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "
-INSERT INTO meta.functions (id, language, title, description, tags, is_active, timeout_seconds)
-VALUES ('$RUST_FUNCTION_ID', 'rust', 'data-validator', 'データ検証機能を提供', 
-        ARRAY['validation', 'data'], true, 30);
+INSERT INTO meta.functions (id, language, title, language_title, description, tags, is_active)
+VALUES ('$RUST_FUNCTION_ID', 'rust', 'data-validator', 'rust-data-validator', 'データ検証機能を提供', 
+        ARRAY['validation', 'data'], true);
 
 INSERT INTO meta.scripts (function_id, content)
 VALUES ('$RUST_FUNCTION_ID', 'use serde::{Deserialize, Serialize};
