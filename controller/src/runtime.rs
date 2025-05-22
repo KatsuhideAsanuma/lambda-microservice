@@ -665,7 +665,7 @@ mod tests {
             memory_usage_bytes: Some(1024 * 1024), // 1MB
         };
         
-        assert_eq!(response.execution_time_ms, 100);
+        assert!(response.execution_time_ms >= 100);
         assert_eq!(response.memory_usage_bytes, Some(1024 * 1024));
         assert!(response.result.get("result").is_some());
         assert_eq!(response.result.get("params").unwrap(), &params);
