@@ -101,17 +101,25 @@ docker-compose up -d
 
 ## API エンドポイント
 
-詳細なAPI仕様は[API仕様書](./docs/api/api_specification.md)を参照してください。主要なエンドポイントの概要は以下の通りです。
+詳細なAPI仕様は[API仕様書](./docs/api/api_specification.md)を参照してください。この仕様書には以下の情報が含まれています：
+
+- 認証・認可の詳細（JWTトークン形式、スコープ、有効期限）
+- 各エンドポイントの完全なリクエスト/レスポンスの例
+- すべてのエラーコードと対応するメッセージ
+- レート制限とクォータ情報
+- APIバージョニング方針
 
 ### 認証・認可
 
-APIはJWTベースの認証を使用します。
+APIはJWTベースの認証を使用します。詳細な認証フローと必要な権限については[認証・認可仕様](./docs/api/api_specification.md#認証認可)を参照してください。
 
 ```
 Authorization: Bearer {token}
 ```
 
 ### 初期化 API
+
+セッションを初期化し、実行環境を準備します。詳細な仕様と例については[初期化API仕様](./docs/api/api_specification.md#初期化api)を参照してください。
 
 ```
 POST /api/v1/initialize
@@ -125,6 +133,8 @@ Body: {
 
 ### 実行 API
 
+初期化済みのセッションでコードを実行します。詳細な仕様と例については[実行API仕様](./docs/api/api_specification.md#実行api)を参照してください。
+
 ```
 POST /api/v1/execute/{request_id}
 Header: Authorization: Bearer {token}
@@ -135,12 +145,16 @@ Body: {
 
 ### セッション状態取得 API
 
+セッションの現在の状態を取得します。詳細な仕様と例については[セッション状態取得API仕様](./docs/api/api_specification.md#セッション状態取得api)を参照してください。
+
 ```
 GET /api/v1/sessions/{request_id}
 Header: Authorization: Bearer {token}
 ```
 
 ### その他のAPI
+
+以下のAPIエンドポイントも利用可能です。詳細な仕様と例については[その他のAPI仕様](./docs/api/api_specification.md#その他のapi)を参照してください。
 
 - スクリプト一覧取得: `GET /api/v1/functions`
 - スクリプト詳細取得: `GET /api/v1/functions/{language_title}`
@@ -149,7 +163,13 @@ Header: Authorization: Bearer {token}
 
 ### JSONスキーマとエラーコード
 
-リクエスト/レスポンスのJSONスキーマや、エラーコードの詳細については[API仕様書](./docs/api/api_specification.md)を参照してください。
+すべてのリクエスト/レスポンスのJSONスキーマや、エラーコードの詳細については[JSONスキーマとエラーコード](./docs/api/api_specification.md#jsonスキーマとエラーコード)を参照してください。エラーコードには以下のカテゴリが含まれます：
+
+- 認証エラー（401, 403）
+- 入力検証エラー（400）
+- リソース不足エラー（429, 507）
+- 内部サーバーエラー（500, 503）
+- ランタイム固有のエラー（460-499）
 
 ## 技術仕様
 
