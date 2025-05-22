@@ -732,12 +732,15 @@ mod tests {
                 }))
             });
 
+        let mut mock_runtime_manager = MockRuntimeManager::new();
+        
         let app = test::init_service(
             App::new()
                 .app_data(Data::new(Arc::new(mock_session_manager) as Arc<dyn SessionManagerTrait>))
                 .app_data(Data::new(create_test_config()))
                 .app_data(Data::new(create_test_db_logger()))
                 .app_data(Data::new(Arc::new(mock_function_manager) as Arc<dyn FunctionManagerTrait>))
+                .app_data(Data::new(Arc::new(mock_runtime_manager) as Arc<dyn RuntimeManagerTrait>))
                 .configure(configure),
         )
         .await;
@@ -775,6 +778,7 @@ mod tests {
                 .app_data(Data::new(create_test_config()))
                 .app_data(Data::new(create_test_db_logger()))
                 .app_data(Data::new(Arc::new(mock_function_manager) as Arc<dyn FunctionManagerTrait>))
+                .app_data(Data::new(Arc::new(MockRuntimeManager::new()) as Arc<dyn RuntimeManagerTrait>))
                 .configure(configure),
         )
         .await;
@@ -830,6 +834,7 @@ mod tests {
                 .app_data(Data::new(config))
                 .app_data(Data::new(create_test_db_logger()))
                 .app_data(Data::new(Arc::new(mock_function_manager) as Arc<dyn FunctionManagerTrait>))
+                .app_data(Data::new(Arc::new(MockRuntimeManager::new()) as Arc<dyn RuntimeManagerTrait>))
                 .configure(configure),
         )
         .await;
@@ -1000,6 +1005,7 @@ mod tests {
                 .app_data(Data::new(Arc::new(mock_session_manager) as Arc<dyn SessionManagerTrait>))
                 .app_data(Data::new(create_test_db_logger()))
                 .app_data(Data::new(Arc::new(mock_function_manager) as Arc<dyn FunctionManagerTrait>))
+                .app_data(Data::new(Arc::new(MockRuntimeManager::new()) as Arc<dyn RuntimeManagerTrait>))
                 .configure(configure),
         )
         .await;
