@@ -31,7 +31,7 @@ WORKDIR /app
 
 # Install dependencies including PostgreSQL client, Rust and wasm-pack
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates postgresql-client curl build-essential pkg-config libssl-dev && \
+    apt-get install -y --no-install-recommends ca-certificates postgresql-client curl build-essential pkg-config libssl-dev wget && \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
     curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh && \
