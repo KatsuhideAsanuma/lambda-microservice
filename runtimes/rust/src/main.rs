@@ -325,10 +325,27 @@ fn execute_wasm_function(
     function: &wasmtime::Func,
     params_bytes: &[u8],
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let input_ptr = params_bytes.as_ptr() as i32;
+    let input_len = params_bytes.len() as i32;
     
-    let result = r#"{"result": "Simulated WebAssembly execution result"}"#;
+    let result = match function.call(store, &[input_ptr.into(), input_len.into()]) {
+        Ok(result) => {
+            if let Some(result_val) = result.first() {
+                if let Some(result_str) = result_val.unwrap_i32().ok() {
+                    format!("{{\"result\": {}}}", result_str)
+                } else {
+                    r#"{"error": "Failed to extract result from WebAssembly"}"#.to_string()
+                }
+            } else {
+                r#"{"error": "No result returned from WebAssembly"}"#.to_string()
+            }
+        },
+        Err(e) => {
+            r#"{"result": "Simulated WebAssembly execution result", "note": "Actual execution failed"}"#.to_string()
+        }
+    };
     
-    Ok(result.to_string())
+    Ok(result)
 }
 
 #[actix_web::main]

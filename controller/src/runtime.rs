@@ -138,8 +138,8 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             selection_strategy,
             runtime_mappings,
             kubernetes_namespace: config.kubernetes_namespace.clone(),
-            redis_url: config.redis_url.as_deref().map(|s| s.to_string()),
-            cache_ttl_seconds: config.runtime_max_retries as u64 * 300, // Default TTL based on retries
+            redis_url: config.redis_url.clone(),
+            cache_ttl_seconds: config.cache_ttl_seconds.unwrap_or(3600), // Use configured TTL or default to 3600
             runtime_max_retries: config.runtime_max_retries,
         };
 
