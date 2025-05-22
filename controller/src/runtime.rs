@@ -2,6 +2,7 @@
 use crate::{
     api::RuntimeManagerTrait,
     error::{Error, Result},
+    kubernetes::{KubernetesClient, KubernetesClientTrait},
     openfaas::OpenFaaSClient,
     protocol::{ProtocolFactory, ProtocolType},
     session::{DbPoolTrait, Session},
@@ -103,6 +104,7 @@ pub struct RuntimeManager<D: DbPoolTrait> {
     wasm_engine: Engine,
     openfaas_client: Option<OpenFaaSClient>,
     redis_client: Option<crate::cache::RedisClient>,
+    kubernetes_client: Option<Box<dyn KubernetesClientTrait>>,
     protocol_factory: Arc<ProtocolFactory>,
 }
 
@@ -135,7 +137,7 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             timeout_seconds: config.runtime_timeout_seconds,
             max_script_size: config.max_script_size,
             wasm_compile_timeout_seconds: config.wasm_compile_timeout_seconds,
-            selection_strategy,
+            selection_strategy: selection_strategy.clone(),
             runtime_mappings,
             kubernetes_namespace: config.kubernetes_namespace.clone(),
             redis_url: config.redis_url.clone(),
@@ -165,12 +167,36 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             None
         };
 
+        let kubernetes_client = if selection_strategy == RuntimeSelectionStrategy::DynamicDiscovery {
+            if let Some(namespace) = &config.kubernetes_namespace {
+                match KubernetesClient::new(
+                    namespace,
+                    config.cache_ttl_seconds.unwrap_or(3600),
+                ).await {
+                    Ok(client) => {
+                        info!("Connected to Kubernetes API for namespace {}", namespace);
+                        Some(Box::new(client) as Box<dyn KubernetesClientTrait>)
+                    },
+                    Err(e) => {
+                        warn!("Failed to connect to Kubernetes API: {}", e);
+                        None
+                    }
+                }
+            } else {
+                warn!("Dynamic discovery selected but no Kubernetes namespace configured");
+                None
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             config: runtime_config,
             db_pool,
             wasm_engine,
             openfaas_client,
             redis_client,
+            kubernetes_client,
             protocol_factory: Arc::new(ProtocolFactory::new()),
         })
     }
@@ -212,9 +238,25 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
                 if let Some(namespace) = &self.config.kubernetes_namespace {
                     info!("Dynamic discovery requested for '{}' in namespace '{}'", 
                           language_title, namespace);
+                    
+                    if let Some(kubernetes_client) = &self.kubernetes_client {
+                        match kubernetes_client.get_runtime_type_for_language(language_title).await {
+                            Ok(runtime_type) => {
+                                info!("Found runtime type {:?} for '{}' using Kubernetes discovery", 
+                                      runtime_type, language_title);
+                                return Ok(runtime_type);
+                            },
+                            Err(e) => {
+                                warn!("Kubernetes discovery failed: {}, falling back to prefix matching", e);
+                            }
+                        }
+                    } else {
+                        warn!("Kubernetes client not initialized, falling back to prefix matching");
+                    }
+                } else {
+                    warn!("Dynamic discovery selected but no Kubernetes namespace configured");
                 }
                 
-                warn!("Dynamic discovery not fully implemented, falling back to prefix matching");
                 RuntimeType::from_language_title(language_title)
             }
         }
@@ -564,12 +606,18 @@ mod tests {
         let db_pool = MockPostgresPool::new();
         let wasm_engine = Engine::default();
 
+        #[cfg(feature = "mock-kubernetes")]
+        let kubernetes_client = Some(Box::new(crate::kubernetes::MockKubernetesClient::new()) as Box<dyn KubernetesClientTrait>);
+        #[cfg(not(feature = "mock-kubernetes"))]
+        let kubernetes_client = None;
+
         RuntimeManager {
             config,
             db_pool,
             wasm_engine,
             openfaas_client: None,
             redis_client: None,
+            kubernetes_client,
             protocol_factory: Arc::new(ProtocolFactory::new()),
         }
     }
@@ -597,6 +645,54 @@ mod tests {
             }
             _ => panic!("Expected BadRequest error"),
         }
+    }
+    
+    #[tokio::test]
+    #[cfg(feature = "mock-kubernetes")]
+    async fn test_dynamic_discovery_strategy() {
+        let mut config = RuntimeConfig {
+            nodejs_runtime_url: "http://nodejs:8080".to_string(),
+            python_runtime_url: "http://python:8080".to_string(),
+            rust_runtime_url: "http://rust:8080".to_string(),
+            timeout_seconds: 30,
+            max_script_size: 1048576,
+            wasm_compile_timeout_seconds: 60,
+            selection_strategy: RuntimeSelectionStrategy::DynamicDiscovery,
+            runtime_mappings: Vec::new(),
+            kubernetes_namespace: Some("default".to_string()),
+            redis_url: None,
+            cache_ttl_seconds: Some(3600),
+            runtime_max_retries: 3,
+        };
+        
+        let db_pool = MockPostgresPool::new();
+        let wasm_engine = Engine::default();
+        let kubernetes_client = Some(Box::new(crate::kubernetes::MockKubernetesClient::new()) as Box<dyn KubernetesClientTrait>);
+        
+        let runtime_manager = RuntimeManager {
+            config,
+            db_pool,
+            wasm_engine,
+            openfaas_client: None,
+            redis_client: None,
+            kubernetes_client,
+            protocol_factory: Arc::new(ProtocolFactory::new()),
+        };
+        
+        let result = runtime_manager.get_runtime_type("nodejs").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), RuntimeType::NodeJs);
+        
+        let result = runtime_manager.get_runtime_type("nodejs-test").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), RuntimeType::NodeJs);
+        
+        let result = runtime_manager.get_runtime_type("test-with-javascript").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), RuntimeType::NodeJs);
+        
+        let result = runtime_manager.get_runtime_type("unknown-language").await;
+        assert!(result.is_err());
     }
 
     #[test]

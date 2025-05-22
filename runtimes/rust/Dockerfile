@@ -29,7 +29,7 @@ FROM debian:bookworm-slim
 
 WORKDIR /app
 
-# Install dependencies including PostgreSQL client, Rust and wasm-pack
+# Install dependencies including PostgreSQL client, Rust, wasm-pack and wget for healthchecks
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates postgresql-client curl build-essential pkg-config libssl-dev wget && \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
