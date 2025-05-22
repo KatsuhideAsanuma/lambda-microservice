@@ -70,6 +70,7 @@ pub struct FunctionInfo {
 async fn initialize_internal(
     req: HttpRequest,
     session_manager: Data<Arc<dyn SessionManagerTrait>>,
+    runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
     config: Data<Config>,
     db_logger: Data<Arc<dyn crate::logger::DatabaseLoggerTrait>>,
     body: Json<InitializeRequest>,
@@ -207,6 +208,7 @@ async fn execute_internal(
     req: HttpRequest,
     session_manager: Data<Arc<dyn SessionManagerTrait>>,
     runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
+    function_manager: Data<Arc<dyn FunctionManagerTrait>>,
     db_logger: Data<Arc<dyn crate::logger::DatabaseLoggerTrait>>,
     body: Json<ExecuteRequest>,
 ) -> HttpResponse {
@@ -442,11 +444,12 @@ async fn get_function_detail(
 async fn initialize(
     req: HttpRequest,
     session_manager: Data<Arc<dyn SessionManagerTrait>>,
+    runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
     config: Data<Config>,
     db_logger: Data<Arc<dyn crate::logger::DatabaseLoggerTrait>>,
     body: Json<InitializeRequest>,
 ) -> HttpResponse {
-    initialize_internal(req, session_manager, config, db_logger, body).await
+    initialize_internal(req, session_manager, runtime_manager, config, db_logger, body).await
 }
 
 #[post("/api/v1/execute/{request_id}")]
@@ -455,10 +458,11 @@ async fn execute(
     req: HttpRequest,
     session_manager: Data<Arc<dyn SessionManagerTrait>>,
     runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
+    function_manager: Data<Arc<dyn FunctionManagerTrait>>,
     db_logger: Data<Arc<dyn crate::logger::DatabaseLoggerTrait>>,
     body: Json<ExecuteRequest>,
 ) -> HttpResponse {
-    execute_internal(path, req, session_manager, runtime_manager, db_logger, body).await
+    execute_internal(path, req, session_manager, runtime_manager, function_manager, db_logger, body).await
 }
 
 #[get("/health")]
