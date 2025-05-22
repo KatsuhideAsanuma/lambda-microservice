@@ -2,9 +2,9 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-if ! docker-compose ps | grep -q "controller"; then
+if ! ./scripts/docker_compose_compat.sh ps | grep -q "controller"; then
     echo "Starting services..."
-    docker-compose up -d
+    ./scripts/set_docker_env.sh ./scripts/docker_compose_compat.sh up -d
     
     echo "Waiting for services to be ready..."
     sleep 30

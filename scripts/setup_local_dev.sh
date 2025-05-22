@@ -43,7 +43,7 @@ else
 fi
 
 echo -e "\n${YELLOW}データベースを起動してマイグレーションを実行します...${NC}"
-docker-compose up -d postgres
+./scripts/set_docker_env.sh ./scripts/docker_compose_compat.sh up -d postgres
 echo "PostgreSQLの起動を待機しています..."
 sleep 5
 
@@ -55,7 +55,7 @@ echo -e "\n${YELLOW}サンプルデータを初期化します...${NC}"
 echo -e "${GREEN}サンプルデータの初期化が完了しました${NC}"
 
 echo -e "\n${YELLOW}すべてのサービスを起動します...${NC}"
-docker-compose up -d
+./scripts/set_docker_env.sh ./scripts/docker_compose_compat.sh up -d
 echo -e "${GREEN}すべてのサービスが起動しました${NC}"
 
 echo -e "\n${YELLOW}ランタイムのテストを実行します...${NC}"
@@ -64,7 +64,7 @@ sleep 10
 ./scripts/test_runtimes.sh
 
 echo -e "\n${GREEN}ローカル開発環境のセットアップが完了しました！${NC}"
-echo -e "以下のコマンドでサービスの状態を確認できます: ${YELLOW}docker-compose ps${NC}"
+echo -e "以下のコマンドでサービスの状態を確認できます: ${YELLOW}./scripts/docker_compose_compat.sh ps${NC}"
 echo -e "各ランタイムは以下のURLで利用可能です:"
 echo -e "- Controller: ${YELLOW}http://localhost:8080${NC}"
 echo -e "- Node.js Runtime: ${YELLOW}http://localhost:8081${NC}"
