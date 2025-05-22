@@ -473,13 +473,22 @@ async fn health_check() -> HttpResponse {
     }))
 }
 
+#[get("/test")]
+async fn test_endpoint() -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "ok",
+        "message": "Test endpoint works"
+    }))
+}
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(initialize)
         .service(execute)
         .service(get_session_state)
         .service(get_function_list)
         .service(get_function_detail)
-        .service(health_check);
+        .service(health_check)
+        .service(test_endpoint);
 }
 
 use async_trait::async_trait;

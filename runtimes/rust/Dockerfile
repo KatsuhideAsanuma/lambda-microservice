@@ -47,8 +47,9 @@ echo "Starting Rust runtime..."\n\
 # Create required directories for wasm-pack\n\
 mkdir -p /root/.cargo/bin\n\
 mkdir -p /root/.wasm-pack\n\
-# Run the application\n\
-exec /app/lambda-microservice-rust-runtime\n\
+# Run the application with debug output\n\
+echo "Running with RUST_LOG=debug and RUST_BACKTRACE=full"\n\
+RUST_LOG=debug RUST_BACKTRACE=full exec /app/lambda-microservice-rust-runtime\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 # Expose port
