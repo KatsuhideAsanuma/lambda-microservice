@@ -4,24 +4,34 @@ use crate::runtime::RuntimeType;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
+#[cfg(not(feature = "mock-kubernetes"))]
+use kube::{
+    api::{Api, ListParams},
+    Client,
+};
+
+#[cfg(not(feature = "mock-kubernetes"))]
+use k8s_openapi::api::core::v1::Service;
+
 pub struct ServiceCache {
     services: HashMap<String, RuntimeType>,
-    last_updated: std::time::Instant,
+    last_updated: Instant,
 }
 
 impl ServiceCache {
     pub fn new() -> Self {
         Self {
             services: HashMap::new(),
-            last_updated: std::time::Instant::now(),
+            last_updated: Instant::now(),
         }
     }
 
     pub fn is_stale(&self, ttl_seconds: u64) -> bool {
-        let now = std::time::Instant::now();
+        let now = Instant::now();
         let age = now.duration_since(self.last_updated);
         age.as_secs() > ttl_seconds
     }
@@ -29,21 +39,96 @@ impl ServiceCache {
 
 pub struct KubernetesClient {
     namespace: String,
+    #[cfg(not(feature = "mock-kubernetes"))]
+    client: Client,
     service_cache: Arc<RwLock<ServiceCache>>,
     cache_ttl_seconds: u64,
 }
 
 impl KubernetesClient {
     pub async fn new(namespace: &str, cache_ttl_seconds: u64) -> Result<Self, Error> {
+        #[cfg(not(feature = "mock-kubernetes"))]
+        let client = match Client::try_default().await {
+            Ok(client) => {
+                info!("Created Kubernetes client for namespace: {}", namespace);
+                client
+            },
+            Err(e) => {
+                error!("Failed to create Kubernetes client: {}", e);
+                return Err(Error::External(format!("Failed to create Kubernetes client: {}", e)));
+            }
+        };
+
+        #[cfg(feature = "mock-kubernetes")]
         info!("Creating mock Kubernetes client for namespace: {}", namespace);
         
         Ok(Self {
             namespace: namespace.to_string(),
+            #[cfg(not(feature = "mock-kubernetes"))]
+            client,
             service_cache: Arc::new(RwLock::new(ServiceCache::new())),
             cache_ttl_seconds,
         })
     }
 
+    #[cfg(not(feature = "mock-kubernetes"))]
+    pub async fn discover_runtime_services(&self) -> Result<HashMap<String, RuntimeType>, Error> {
+        {
+            let cache = self.service_cache.read().await;
+            if !cache.is_stale(self.cache_ttl_seconds) {
+                debug!("Using cached runtime services");
+                return Ok(cache.services.clone());
+            }
+        }
+
+        info!("Discovering Kubernetes services in namespace: {}", self.namespace);
+        
+        let services_api: Api<Service> = Api::namespaced(self.client.clone(), &self.namespace);
+        let lp = ListParams::default()
+            .labels("app.kubernetes.io/component=runtime");
+        
+        let services = match services_api.list(&lp).await {
+            Ok(list) => list,
+            Err(e) => {
+                error!("Failed to list Kubernetes services: {}", e);
+                return Err(Error::External(format!("Failed to list Kubernetes services: {}", e)));
+            }
+        };
+
+        let mut runtime_services = HashMap::new();
+
+        for service in services.items {
+            if let Some(metadata) = service.metadata {
+                if let Some(labels) = metadata.labels {
+                    if let Some(runtime_type) = labels.get("lambda.microservice/runtime") {
+                        let service_name = metadata.name.unwrap_or_default();
+                        
+                        let runtime = match runtime_type.as_str() {
+                            "nodejs" => RuntimeType::NodeJs,
+                            "python" => RuntimeType::Python,
+                            "rust" => RuntimeType::Rust,
+                            _ => continue,
+                        };
+                        
+                        runtime_services.insert(service_name, runtime);
+                        info!("Discovered runtime service: {} of type {:?}", service_name, runtime);
+                    }
+                }
+            }
+        }
+
+        {
+            let mut cache = self.service_cache.write().await;
+            *cache = ServiceCache {
+                services: runtime_services.clone(),
+                last_updated: Instant::now(),
+            };
+        }
+
+        Ok(runtime_services)
+    }
+
+    #[cfg(feature = "mock-kubernetes")]
     pub async fn discover_runtime_services(&self) -> Result<HashMap<String, RuntimeType>, Error> {
         {
             let cache = self.service_cache.read().await;
@@ -67,8 +152,10 @@ impl KubernetesClient {
         
         {
             let mut cache = self.service_cache.write().await;
-            cache.services = runtime_services.clone();
-            cache.last_updated = std::time::Instant::now();
+            *cache = ServiceCache {
+                services: runtime_services.clone(),
+                last_updated: Instant::now(),
+            };
         }
 
         Ok(runtime_services)
@@ -87,7 +174,7 @@ impl KubernetesClient {
         }
         
         for (service_name, runtime_type) in &services {
-            if language_title.starts_with(service_name) {
+            if language_title.starts_with(&format!("{}-", service_name)) {
                 info!("Found prefix match for {}: {:?}", language_title, runtime_type);
                 return Ok(*runtime_type);
             }
