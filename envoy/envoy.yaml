@@ -48,5 +48,5 @@ static_resources:
         - endpoint:
             address:
               socket_address:
-                address: gateway.openfaas
+                address: gateway
                 port_value: 8080
