@@ -35,8 +35,8 @@ RUN apt-get update && \
 # Copy the binary from the builder stage
 COPY --from=builder /app/target/release/lambda-microservice-controller /app/lambda-microservice-controller
 
-# Copy .env file
-COPY .env .
+# Environment variables are now managed through Docker Secrets and Kubernetes ConfigMap/Secrets
+# .env file is no longer needed
 
 # Expose the port
 EXPOSE 8080
