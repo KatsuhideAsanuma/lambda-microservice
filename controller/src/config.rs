@@ -39,12 +39,26 @@ impl Config {
                 .unwrap_or_else(|_| "8080".to_string())
                 .parse()
                 .map_err(|_| Error::Config("Invalid PORT".to_string()))?,
-            database_url: env::var("DATABASE_URL").map_err(|_| {
-                Error::Config("DATABASE_URL environment variable not set".to_string())
-            })?,
-            redis_url: env::var("REDIS_URL").map_err(|_| {
-                Error::Config("REDIS_URL environment variable not set".to_string())
-            })?,
+            database_url: env::var("DATABASE_URL")
+                .or_else(|_| {
+                    env::var("DATABASE_URL_FILE").and_then(|path| {
+                        std::fs::read_to_string(path)
+                            .map_err(|_| env::VarError::NotPresent)
+                    })
+                })
+                .map_err(|_| {
+                    Error::Config("DATABASE_URL environment variable not set".to_string())
+                })?,
+            redis_url: env::var("REDIS_URL")
+                .or_else(|_| {
+                    env::var("REDIS_URL_FILE").and_then(|path| {
+                        std::fs::read_to_string(path)
+                            .map_err(|_| env::VarError::NotPresent)
+                    })
+                })
+                .map_err(|_| {
+                    Error::Config("REDIS_URL environment variable not set".to_string())
+                })?,
             session_expiry_seconds: env::var("SESSION_EXPIRY_SECONDS")
                 .unwrap_or_else(|_| "3600".to_string())
                 .parse()

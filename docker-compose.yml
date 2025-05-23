@@ -132,12 +132,16 @@ services:
       context: ./controller
     ports:
       - "8080:8080"
+    secrets:
+      - db_url
+      - redis_url
+      - redis_cache_url
     environment:
       - HOST=0.0.0.0
       - PORT=8080
-      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/lambda_microservice
-      - REDIS_URL=redis://redis:6379
-      - REDIS_CACHE_URL=redis://redis:6379
+      - DATABASE_URL_FILE=/run/secrets/db_url
+      - REDIS_URL_FILE=/run/secrets/redis_url
+      - REDIS_CACHE_URL_FILE=/run/secrets/redis_cache_url
       - SESSION_EXPIRY_SECONDS=3600
       - NODEJS_RUNTIME_URL=http://nodejs-runtime:8080
       - PYTHON_RUNTIME_URL=http://python-runtime:8080
@@ -165,3 +169,11 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
+secrets:
+  db_url:
+    file: ./secrets/db_url.txt
+  redis_url:
+    file: ./secrets/redis_url.txt
+  redis_cache_url:
+    file: ./secrets/redis_cache_url.txt

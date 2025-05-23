@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lambda-controller-config
+  namespace: lambda-microservice
+data:
+  HOST: "0.0.0.0"
+  PORT: "8080"
+  SESSION_EXPIRY_SECONDS: "3600"
+  NODEJS_RUNTIME_URL: "http://lambda-nodejs-runtime:8080"
+  PYTHON_RUNTIME_URL: "http://lambda-python-runtime:8080"
+  RUST_RUNTIME_URL: "http://lambda-rust-runtime:8080"
+  RUNTIME_TIMEOUT_SECONDS: "30"
+  RUNTIME_FALLBACK_TIMEOUT_SECONDS: "15"
+  RUNTIME_MAX_RETRIES: "3"
+  MAX_SCRIPT_SIZE: "1048576"
+  WASM_COMPILE_TIMEOUT_SECONDS: "60"
+  OPENFAAS_GATEWAY_URL: "http://gateway.openfaas:8080"
+  RUNTIME_SELECTION_STRATEGY: "PrefixMatching"
+  CACHE_TTL_SECONDS: "3600"
+  KUBERNETES_NAMESPACE: "lambda-microservice"
