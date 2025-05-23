@@ -5,7 +5,6 @@ use lambda_microservice_controller::cache::RedisPool;
 use serde_json::{json, Value};
 
 #[actix_rt::test]
-#[ignore]
 async fn test_nodejs_runtime() {
     let app = create_test_app().await;
     
@@ -97,7 +96,6 @@ async fn test_nodejs_runtime() {
 }
 
 #[actix_rt::test]
-#[ignore]
 async fn test_python_runtime() {
     let app = create_test_app().await;
     
@@ -160,7 +158,6 @@ def handle(event):
 }
 
 #[actix_rt::test]
-#[ignore]
 async fn test_rust_runtime() {
     let app = create_test_app().await;
     
