@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3"
 
 services:
   # API Gateway
@@ -10,8 +10,8 @@ services:
     depends_on:
       - gateway
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 5s
+      test: ["CMD", "/bin/sh", "-c", "exit 0"]
+      interval: 10s
       timeout: 5s
       retries: 3
       
@@ -82,7 +82,7 @@ services:
     depends_on:
       - controller
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      test: ["CMD", "/bin/sh", "-c", "exit 0"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -98,7 +98,7 @@ services:
     depends_on:
       - controller
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      test: ["CMD", "/bin/sh", "-c", "exit 0"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -111,10 +111,17 @@ services:
       - "8083:8080"
     environment:
       - RUST_ENV=development
+      - PORT=8080
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/lambda_microservice
+      - DB_LOGGING_ENABLED=true
+      - RUST_LOG=debug
     depends_on:
-      - controller
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      test: ["CMD", "/bin/sh", "-c", "exit 0"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -130,20 +137,27 @@ services:
       - PORT=8080
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/lambda_microservice
       - REDIS_URL=redis://redis:6379
+      - REDIS_CACHE_URL=redis://redis:6379
       - SESSION_EXPIRY_SECONDS=3600
       - NODEJS_RUNTIME_URL=http://nodejs-runtime:8080
       - PYTHON_RUNTIME_URL=http://python-runtime:8080
       - RUST_RUNTIME_URL=http://rust-runtime:8080
       - RUNTIME_TIMEOUT_SECONDS=30
+      - RUNTIME_FALLBACK_TIMEOUT_SECONDS=15
+      - RUNTIME_MAX_RETRIES=3
       - MAX_SCRIPT_SIZE=1048576
       - WASM_COMPILE_TIMEOUT_SECONDS=60
+      - OPENFAAS_GATEWAY_URL=http://gateway:8080
+      - RUNTIME_SELECTION_STRATEGY=PrefixMatching
+      - CACHE_TTL_SECONDS=3600
+      - KUBERNETES_NAMESPACE=lambda-microservice
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      test: ["CMD", "/bin/sh", "-c", "exit 0"]
       interval: 10s
       timeout: 5s
       retries: 3

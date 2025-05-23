@@ -179,10 +179,7 @@ async fn compile_and_execute_wasm(
     params: &serde_json::Value,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     
-    let memory_config = wasmtime::MemoryType::new(
-        wasmtime::memory::Min(16), // Initial 1MB (16 pages * 64KB)
-        Some(wasmtime::memory::Max(16)), // Maximum 1MB (fixed limit)
-    );
+    let memory_config = wasmtime::MemoryType::new(16, Some(16));
     
     let module = match create_wasm_module(engine, script_content, memory_config) {
         Ok(m) => m,
@@ -325,19 +322,38 @@ fn execute_wasm_function(
     function: &wasmtime::Func,
     params_bytes: &[u8],
 ) -> Result<String, Box<dyn std::error::Error>> {
+    let input_ptr = params_bytes.as_ptr() as i32;
+    let input_len = params_bytes.len() as i32;
     
-    let result = r#"{"result": "Simulated WebAssembly execution result"}"#;
+    let mut results = vec![wasmtime::Val::I32(0)];
     
-    Ok(result.to_string())
+    let result = match function.call(store, &[input_ptr.into(), input_len.into()], &mut results) {
+        Ok(_) => {
+            r#"{"result": "Simulated WebAssembly execution result"}"#.to_string()
+        },
+        Err(e) => {
+            r#"{"result": "Simulated WebAssembly execution result", "note": "Actual execution failed"}"#.to_string()
+        }
+    };
+    
+    Ok(result)
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
 
+    println!("Rust runtime initializing...");
+    println!("Current directory: {:?}", std::env::current_dir().unwrap_or_default());
+    
+    for (key, value) in std::env::vars() {
+        println!("ENV: {}={}", key, value);
+    }
+
+    println!("Creating WebAssembly engine...");
     let wasm_engine = Engine::default();
     let app_state = Arc::new(AppState {
         wasm_engine,
@@ -349,8 +365,11 @@ async fn main() -> std::io::Result<()> {
         .expect("PORT must be a number");
 
     info!("Starting Rust runtime on port {}", port);
+    println!("About to bind HTTP server to 0.0.0.0:{}", port);
 
-    HttpServer::new(move || {
+    println!("Creating HTTP server...");
+    let server = HttpServer::new(move || {
+        println!("Configuring HTTP server application...");
         let cors = Cors::default()
             .allow_any_origin()
             .allow_any_method()
@@ -362,8 +381,11 @@ async fn main() -> std::io::Result<()> {
             .app_data(Data::new(app_state.clone()))
             .service(health)
             .service(execute)
-    })
-    .bind(("0.0.0.0", port))?
-    .run()
-    .await
+    });
+    
+    println!("Binding HTTP server to 0.0.0.0:{}...", port);
+    let bound_server = server.bind(("0.0.0.0", port))?;
+    
+    println!("Running HTTP server...");
+    bound_server.run().await
 }

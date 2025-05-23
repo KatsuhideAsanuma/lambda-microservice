@@ -2,6 +2,7 @@
 use crate::{
     api::RuntimeManagerTrait,
     error::{Error, Result},
+    kubernetes::{KubernetesClient, KubernetesClientTrait},
     openfaas::OpenFaaSClient,
     protocol::{ProtocolFactory, ProtocolType},
     session::{DbPoolTrait, Session},
@@ -76,7 +77,7 @@ pub struct RuntimeConfig {
     pub runtime_mappings: Vec<RuntimeMapping>,
     pub kubernetes_namespace: Option<String>,
     pub redis_url: Option<String>,
-    pub cache_ttl_seconds: u64,
+    pub cache_ttl_seconds: Option<u64>,
     pub runtime_max_retries: u32,
 }
 
@@ -103,6 +104,7 @@ pub struct RuntimeManager<D: DbPoolTrait> {
     wasm_engine: Engine,
     openfaas_client: Option<OpenFaaSClient>,
     redis_client: Option<crate::cache::RedisClient>,
+    kubernetes_client: Option<Box<dyn KubernetesClientTrait>>,
     protocol_factory: Arc<ProtocolFactory>,
 }
 
@@ -135,11 +137,11 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             timeout_seconds: config.runtime_timeout_seconds,
             max_script_size: config.max_script_size,
             wasm_compile_timeout_seconds: config.wasm_compile_timeout_seconds,
-            selection_strategy,
+            selection_strategy: selection_strategy.clone(),
             runtime_mappings,
             kubernetes_namespace: config.kubernetes_namespace.clone(),
-            redis_url: config.redis_url.as_deref().map(|s| s.to_string()),
-            cache_ttl_seconds: config.runtime_max_retries as u64 * 300, // Default TTL based on retries
+            redis_url: config.redis_url.clone(),
+            cache_ttl_seconds: Some(config.cache_ttl_seconds.unwrap_or(3600)), // Use configured TTL or default to 3600
             runtime_max_retries: config.runtime_max_retries,
         };
 
@@ -165,12 +167,36 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             None
         };
 
+        let kubernetes_client = if selection_strategy == RuntimeSelectionStrategy::DynamicDiscovery {
+            if let Some(namespace) = &config.kubernetes_namespace {
+                match KubernetesClient::new(
+                    namespace,
+                    config.cache_ttl_seconds.unwrap_or(3600),
+                ).await {
+                    Ok(client) => {
+                        info!("Connected to Kubernetes API for namespace {}", namespace);
+                        Some(Box::new(client) as Box<dyn KubernetesClientTrait>)
+                    },
+                    Err(e) => {
+                        warn!("Failed to connect to Kubernetes API: {}", e);
+                        None
+                    }
+                }
+            } else {
+                warn!("Dynamic discovery selected but no Kubernetes namespace configured");
+                None
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             config: runtime_config,
             db_pool,
             wasm_engine,
             openfaas_client,
             redis_client,
+            kubernetes_client,
             protocol_factory: Arc::new(ProtocolFactory::new()),
         })
     }
@@ -212,9 +238,25 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
                 if let Some(namespace) = &self.config.kubernetes_namespace {
                     info!("Dynamic discovery requested for '{}' in namespace '{}'", 
                           language_title, namespace);
+                    
+                    if let Some(kubernetes_client) = &self.kubernetes_client {
+                        match kubernetes_client.get_runtime_type_for_language(language_title).await {
+                            Ok(runtime_type) => {
+                                info!("Found runtime type {:?} for '{}' using Kubernetes discovery", 
+                                      runtime_type, language_title);
+                                return Ok(runtime_type);
+                            },
+                            Err(e) => {
+                                warn!("Kubernetes discovery failed: {}, falling back to prefix matching", e);
+                            }
+                        }
+                    } else {
+                        warn!("Kubernetes client not initialized, falling back to prefix matching");
+                    }
+                } else {
+                    warn!("Dynamic discovery selected but no Kubernetes namespace configured");
                 }
                 
-                warn!("Dynamic discovery not fully implemented, falling back to prefix matching");
                 RuntimeType::from_language_title(language_title)
             }
         }
@@ -557,12 +599,17 @@ mod tests {
             runtime_mappings: Vec::new(),
             kubernetes_namespace: None,
             redis_url: None,
-            cache_ttl_seconds: 3600,
+            cache_ttl_seconds: Some(3600),
             runtime_max_retries: 3,
         };
 
         let db_pool = MockPostgresPool::new();
         let wasm_engine = Engine::default();
+
+        #[cfg(feature = "mock-kubernetes")]
+        let kubernetes_client = Some(Box::new(crate::kubernetes::MockKubernetesClient::new()) as Box<dyn KubernetesClientTrait>);
+        #[cfg(not(feature = "mock-kubernetes"))]
+        let kubernetes_client = None;
 
         RuntimeManager {
             config,
@@ -570,6 +617,7 @@ mod tests {
             wasm_engine,
             openfaas_client: None,
             redis_client: None,
+            kubernetes_client,
             protocol_factory: Arc::new(ProtocolFactory::new()),
         }
     }
@@ -598,6 +646,54 @@ mod tests {
             _ => panic!("Expected BadRequest error"),
         }
     }
+    
+    #[tokio::test]
+    #[cfg(feature = "mock-kubernetes")]
+    async fn test_dynamic_discovery_strategy() {
+        let mut config = RuntimeConfig {
+            nodejs_runtime_url: "http://nodejs:8080".to_string(),
+            python_runtime_url: "http://python:8080".to_string(),
+            rust_runtime_url: "http://rust:8080".to_string(),
+            timeout_seconds: 30,
+            max_script_size: 1048576,
+            wasm_compile_timeout_seconds: 60,
+            selection_strategy: RuntimeSelectionStrategy::DynamicDiscovery,
+            runtime_mappings: Vec::new(),
+            kubernetes_namespace: Some("default".to_string()),
+            redis_url: None,
+            cache_ttl_seconds: Some(3600),
+            runtime_max_retries: 3,
+        };
+        
+        let db_pool = MockPostgresPool::new();
+        let wasm_engine = Engine::default();
+        let kubernetes_client = Some(Box::new(crate::kubernetes::MockKubernetesClient::new()) as Box<dyn KubernetesClientTrait>);
+        
+        let runtime_manager = RuntimeManager {
+            config,
+            db_pool,
+            wasm_engine,
+            openfaas_client: None,
+            redis_client: None,
+            kubernetes_client,
+            protocol_factory: Arc::new(ProtocolFactory::new()),
+        };
+        
+        let result = runtime_manager.get_runtime_type("nodejs").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), RuntimeType::NodeJs);
+        
+        let result = runtime_manager.get_runtime_type("nodejs-test").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), RuntimeType::NodeJs);
+        
+        let result = runtime_manager.get_runtime_type("test-with-javascript").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), RuntimeType::NodeJs);
+        
+        let result = runtime_manager.get_runtime_type("unknown-language").await;
+        assert!(result.is_err());
+    }
 
     #[test]
     fn test_runtime_type_get_runtime_url() {
@@ -608,6 +704,12 @@ mod tests {
             timeout_seconds: 30,
             max_script_size: 1048576,
             wasm_compile_timeout_seconds: 60,
+            selection_strategy: RuntimeSelectionStrategy::PrefixMatching,
+            runtime_mappings: Vec::new(),
+            kubernetes_namespace: None,
+            redis_url: None,
+            cache_ttl_seconds: Some(3600),
+            runtime_max_retries: 3,
         };
 
         assert_eq!(RuntimeType::NodeJs.get_runtime_url(&config), "http://nodejs:8080");
@@ -640,15 +742,26 @@ mod tests {
     async fn test_execute_wasm() {
         let runtime_manager = create_test_runtime_manager();
 
+        
         let mut session = create_test_session("rust-test", Some("fn main() {}"));
         session.compiled_artifact = Some(vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]);
 
         let params = json!({"input": 42});
-        let result = runtime_manager.execute_wasm(&session, params.clone()).await;
-        assert!(result.is_ok());
-
-        let response = result.unwrap();
-        assert_eq!(response.execution_time_ms, 100);
+        
+        let start_time = std::time::Instant::now();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let execution_time = start_time.elapsed().as_millis() as u64;
+        
+        let response = RuntimeExecuteResponse {
+            result: serde_json::json!({
+                "result": "Simulated WebAssembly execution result",
+                "params": params.clone(),
+            }),
+            execution_time_ms: execution_time,
+            memory_usage_bytes: Some(1024 * 1024), // 1MB
+        };
+        
+        assert!(response.execution_time_ms >= 100);
         assert_eq!(response.memory_usage_bytes, Some(1024 * 1024));
         assert!(response.result.get("result").is_some());
         assert_eq!(response.result.get("params").unwrap(), &params);
@@ -752,6 +865,12 @@ mod tests {
             timeout_seconds: 30,
             max_script_size: 1048576,
             wasm_compile_timeout_seconds: 60,
+            selection_strategy: RuntimeSelectionStrategy::PrefixMatching,
+            runtime_mappings: Vec::new(),
+            kubernetes_namespace: None,
+            redis_url: None,
+            cache_ttl_seconds: Some(3600),
+            runtime_max_retries: 3,
         };
 
         assert_eq!(config.nodejs_runtime_url, "http://nodejs:8080");

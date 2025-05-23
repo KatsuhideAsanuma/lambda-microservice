@@ -1,0 +1,23 @@
+# Environment variables
+.env
+**/.env
+
+# Build artifacts
+**/target/
+**/node_modules/
+**/package-lock.json
+**/dist/
+
+# Logs
+*.log
+**/logs/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
