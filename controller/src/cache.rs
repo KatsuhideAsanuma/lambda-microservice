@@ -125,8 +125,8 @@ impl RedisPool {
 }
 
 
-#[cfg(test)]
-mod tests {
+#[cfg(any(test, feature = "test-integration"))]
+pub mod tests {
     use super::*;
     use std::sync::Arc;
     use tokio::sync::Mutex;
