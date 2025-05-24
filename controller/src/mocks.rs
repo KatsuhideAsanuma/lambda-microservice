@@ -262,7 +262,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[derive(Clone)]
 pub struct MockRuntimeManager {
     execute_result: Arc<Mutex<Result<RuntimeExecuteResponse>>>,
-    compile_result: Arc<Mutex<Result<String>>>,
+    compile_result: Arc<Mutex<Result<Vec<u8>>>>,
+    config: RuntimeConfig,
     call_count: Arc<AtomicUsize>,
 }
 
@@ -274,7 +275,17 @@ impl MockRuntimeManager {
                 execution_time_ms: 100,
                 memory_usage_bytes: Some(1024),
             }))),
-            compile_result: Arc::new(Mutex::new(Ok("compiled-wasm".to_string()))),
+            compile_result: Arc::new(Mutex::new(Ok(vec![0, 1, 2, 3]))), // Mock WASM binary
+            config: RuntimeConfig {
+                nodejs_url: "http://localhost:8081".to_string(),
+                python_url: "http://localhost:8082".to_string(),
+                rust_url: "http://localhost:8083".to_string(),
+                timeout_seconds: 30,
+                fallback_timeout_seconds: 15,
+                max_retries: 3,
+                wasm_compile_timeout_seconds: 60,
+                wasm_temp_dir: "/tmp".to_string(),
+            },
             call_count: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -284,7 +295,7 @@ impl MockRuntimeManager {
         self
     }
     
-    pub fn with_compile_result(mut self, result: Result<String>) -> Self {
+    pub fn with_compile_result(mut self, result: Result<Vec<u8>>) -> Self {
         self.compile_result = Arc::new(Mutex::new(result));
         self
     }
@@ -296,82 +307,50 @@ impl MockRuntimeManager {
 
 #[async_trait]
 impl RuntimeManagerTrait for MockRuntimeManager {
-    async fn get_runtime_type(&self, language_title: &str) -> Result<RuntimeType> {
-        self.call_count.fetch_add(1, Ordering::SeqCst);
-        match language_title.to_lowercase().as_str() {
-            "nodejs" | "node" | "javascript" | "js" => Ok(RuntimeType::NodeJs),
-            "python" | "py" => Ok(RuntimeType::Python),
-            "rust" | "rs" => Ok(RuntimeType::Rust),
-            _ => Err(Error::BadRequest(format!("Unsupported language: {}", language_title))),
-        }
-    }
-    
-    fn get_runtime_url(&self, runtime_type: RuntimeType) -> String {
-        self.call_count.fetch_add(1, Ordering::SeqCst);
-        match runtime_type {
-            RuntimeType::NodeJs => "http://localhost:8081".to_string(),
-            RuntimeType::Python => "http://localhost:8082".to_string(),
-            RuntimeType::Rust => "http://localhost:8083".to_string(),
-        }
-    }
-    
-    async fn execute_function(
-        &self,
-        _runtime_type: RuntimeType,
-        _session: &Session,
+    async fn execute<'a>(
+        &'a self,
+        _session: &'a Session,
         _params: serde_json::Value,
-        _allow_degraded: bool,
     ) -> Result<RuntimeExecuteResponse> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         self.execute_result.lock().await.clone()
     }
     
-    async fn compile_wasm(
-        &self,
-        _runtime_type: RuntimeType,
-        _session: &Session,
-    ) -> Result<String> {
+    async fn compile_rust_script<'a>(&'a self, _session: &'a Session) -> Result<Vec<u8>> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         self.compile_result.lock().await.clone()
     }
     
-    async fn handle_runtime_error(
-        &self,
-        error: &Error,
-        context: &str,
+    async fn execute_wasm<'a>(
+        &'a self,
+        _session: &'a Session,
+        _params: serde_json::Value,
     ) -> Result<RuntimeExecuteResponse> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
-        Ok(RuntimeExecuteResponse {
-            result: serde_json::json!({
-                "error": format!("{:?}", error),
-                "context": context,
-            }),
-            execution_time_ms: 0,
-            memory_usage_bytes: None,
-        })
+        self.execute_result.lock().await.clone()
     }
     
-    fn parse_runtime_response(&self, response_bytes: &[u8]) -> Result<RuntimeExecuteResponse> {
+    async fn execute_in_container<'a>(
+        &'a self,
+        _runtime_type: RuntimeType,
+        _session: &'a Session,
+        _params: serde_json::Value,
+    ) -> Result<RuntimeExecuteResponse> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
-        let response: serde_json::Value = serde_json::from_slice(response_bytes)?;
-        
-        let result = response.get("result").ok_or_else(|| {
-            Error::Runtime("Missing 'result' field in runtime response".to_string())
-        })?;
-        
-        let execution_time_ms = response.get("execution_time_ms")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| {
-                Error::Runtime("Missing or invalid 'execution_time_ms' field in runtime response".to_string())
-            })?;
-        
-        let memory_usage_bytes = response.get("memory_usage_bytes")
-            .and_then(|v| v.as_u64());
-        
-        Ok(RuntimeExecuteResponse {
-            result: result.clone(),
-            execution_time_ms: execution_time_ms as u32,
-            memory_usage_bytes: memory_usage_bytes,
-        })
+        self.execute_result.lock().await.clone()
+    }
+    
+    async fn compile_with_wasmtime<'a>(
+        &'a self,
+        _script_content: &'a str,
+        _memory_limit_bytes: u64,
+    ) -> Result<Vec<u8>> {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        self.compile_result.lock().await.clone()
+    }
+    
+    #[cfg(test)]
+    fn get_config(&self) -> &RuntimeConfig {
+        &self.config
     }
 }
