@@ -209,16 +209,21 @@ mod tests {
     #[test]
     fn test_config_from_env_with_custom_values() {
         clear_env_vars();
-        setup_env_vars();
-
+        
+        env::set_var("DATABASE_URL", "postgres://user:pass@localhost:5432/testdb");
+        env::set_var("REDIS_URL", "redis://localhost:6379");
+        env::set_var("NODEJS_RUNTIME_URL", "http://localhost:8081");
+        env::set_var("PYTHON_RUNTIME_URL", "http://localhost:8082");
+        env::set_var("RUST_RUNTIME_URL", "http://localhost:8083");
+        
         env::set_var("HOST", "127.0.0.1");
         env::set_var("PORT", "9090");
         env::set_var("SESSION_EXPIRY_SECONDS", "7200");
         env::set_var("RUNTIME_TIMEOUT_SECONDS", "60");
         env::set_var("MAX_SCRIPT_SIZE", "1048576");
         env::set_var("WASM_COMPILE_TIMEOUT_SECONDS", "60");
-
-        assert!(env::var("DATABASE_URL").is_ok(), "DATABASE_URL must be set for this test");
+        
+        assert_eq!(env::var("PORT").unwrap(), "9090", "PORT環境変数が正しく設定されていません");
         
         let config = Config::from_env().expect("Failed to load config");
 
@@ -232,12 +237,28 @@ mod tests {
 
     #[test]
     fn test_config_from_env_with_invalid_port() {
-        clear_env_vars();
-        setup_env_vars();
+        let test_port_var = "TEST_INVALID_PORT_VAR";
         
-        env::set_var("PORT", "invalid");
+        env::set_var("DATABASE_URL", "postgres://user:pass@localhost:5432/testdb");
+        env::set_var("REDIS_URL", "redis://localhost:6379");
+        env::set_var("NODEJS_RUNTIME_URL", "http://localhost:8081");
+        env::set_var("PYTHON_RUNTIME_URL", "http://localhost:8082");
+        env::set_var("RUST_RUNTIME_URL", "http://localhost:8083");
+        
+        env::set_var(test_port_var, "invalid");
 
-        let result = Config::from_env();
+        let result = {
+            let original_port = env::var("PORT").ok();
+            env::set_var("PORT", env::var(test_port_var).unwrap());
+            let config_result = Config::from_env();
+            if let Some(port) = original_port {
+                env::set_var("PORT", port);
+            } else {
+                env::remove_var("PORT");
+            }
+            config_result
+        };
+        
         assert!(result.is_err());
         if let Err(err) = result {
             assert!(matches!(err, Error::Config(_)));
@@ -250,6 +271,8 @@ mod tests {
                 error_message
             );
         }
+        
+        env::remove_var(test_port_var);
     }
 
     #[test]
