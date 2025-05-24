@@ -4,7 +4,7 @@ use lambda_microservice_controller::{
     function::FunctionManager, session::SessionManager,
     runtime::RuntimeManager,
     logger::DatabaseLogger,
-    mocks::{MockPostgresPool, MockRedisPool},
+    mocks::{MockPostgresPool, MockRedisPool, MockDatabaseLogger, MockRuntimeManager},
 };
 use std::sync::Arc;
 
@@ -105,4 +105,67 @@ async fn test_health_endpoint() {
     let resp = test::call_service(&app, req).await;
     
     assert!(resp.status().is_success());
+}
+
+#[tokio::test]
+async fn test_api_routes_configuration() {
+    let postgres_pool = MockPostgresPool::new();
+    let redis_pool = MockRedisPool::new();
+    let db_logger = Arc::new(MockDatabaseLogger::new());
+    let runtime_manager = Arc::new(MockRuntimeManager::new());
+    
+    let config = create_test_config();
+    
+    let session_manager = Arc::new(
+        lambda_microservice_controller::session::SessionManager::new(
+            postgres_pool.clone(),
+            redis_pool.clone(),
+            config.session_expiry_seconds,
+        )
+    );
+    
+    let function_manager = Arc::new(
+        lambda_microservice_controller::function::FunctionManager::new(
+            postgres_pool.clone()
+        )
+    );
+    
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(postgres_pool.clone()))
+            .app_data(web::Data::new(redis_pool.clone()))
+            .app_data(web::Data::new(session_manager.clone()))
+            .app_data(web::Data::new(function_manager.clone()))
+            .app_data(web::Data::new(db_logger.clone()))
+            .app_data(web::Data::new(runtime_manager.clone()))
+            .app_data(web::Data::new(config.clone()))
+            .configure(api::configure)
+    ).await;
+    
+    let health_req = test::TestRequest::get().uri("/health").to_request();
+    let health_resp = test::call_service(&app, health_req).await;
+    assert!(health_resp.status().is_success());
+    
+    let endpoints = vec![
+        "/api/v1/functions",
+        "/api/v1/sessions",
+        "/api/v1/functions/create",
+    ];
+    
+    for endpoint in endpoints {
+        let req = test::TestRequest::get().uri(endpoint).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 401); // 認証なしなので401
+    }
+}
+
+#[tokio::test]
+async fn test_server_configuration() {
+    std::env::set_var("HOST", "127.0.0.1");
+    std::env::set_var("PORT", "8088"); // テスト用ポート
+    
+    let config = Config::from_env().expect("Failed to load configuration");
+    
+    assert_eq!(config.host, "127.0.0.1");
+    assert_eq!(config.port, 8088);
 }

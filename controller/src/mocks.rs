@@ -254,3 +254,123 @@ impl MockOpenFaaSClient {
         }
     }
 }
+
+use crate::runtime::{RuntimeManagerTrait, RuntimeConfig};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[derive(Clone)]
+pub struct MockRuntimeManager {
+    execute_result: Arc<Mutex<Result<RuntimeExecuteResponse>>>,
+    compile_result: Arc<Mutex<Result<String>>>,
+    call_count: Arc<AtomicUsize>,
+}
+
+impl MockRuntimeManager {
+    pub fn new() -> Self {
+        Self {
+            execute_result: Arc::new(Mutex::new(Ok(RuntimeExecuteResponse {
+                result: serde_json::json!({"status": "success"}),
+                execution_time_ms: 100,
+                memory_usage_bytes: Some(1024),
+            }))),
+            compile_result: Arc::new(Mutex::new(Ok("compiled-wasm".to_string()))),
+            call_count: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+    
+    pub fn with_execute_result(mut self, result: Result<RuntimeExecuteResponse>) -> Self {
+        self.execute_result = Arc::new(Mutex::new(result));
+        self
+    }
+    
+    pub fn with_compile_result(mut self, result: Result<String>) -> Self {
+        self.compile_result = Arc::new(Mutex::new(result));
+        self
+    }
+    
+    pub fn get_call_count(&self) -> usize {
+        self.call_count.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl RuntimeManagerTrait for MockRuntimeManager {
+    async fn get_runtime_type(&self, language_title: &str) -> Result<RuntimeType> {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        match language_title.to_lowercase().as_str() {
+            "nodejs" | "node" | "javascript" | "js" => Ok(RuntimeType::NodeJs),
+            "python" | "py" => Ok(RuntimeType::Python),
+            "rust" | "rs" => Ok(RuntimeType::Rust),
+            _ => Err(Error::BadRequest(format!("Unsupported language: {}", language_title))),
+        }
+    }
+    
+    fn get_runtime_url(&self, runtime_type: RuntimeType) -> String {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        match runtime_type {
+            RuntimeType::NodeJs => "http://localhost:8081".to_string(),
+            RuntimeType::Python => "http://localhost:8082".to_string(),
+            RuntimeType::Rust => "http://localhost:8083".to_string(),
+        }
+    }
+    
+    async fn execute_function(
+        &self,
+        _runtime_type: RuntimeType,
+        _session: &Session,
+        _params: serde_json::Value,
+        _allow_degraded: bool,
+    ) -> Result<RuntimeExecuteResponse> {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        self.execute_result.lock().await.clone()
+    }
+    
+    async fn compile_wasm(
+        &self,
+        _runtime_type: RuntimeType,
+        _session: &Session,
+    ) -> Result<String> {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        self.compile_result.lock().await.clone()
+    }
+    
+    async fn handle_runtime_error(
+        &self,
+        error: &Error,
+        context: &str,
+    ) -> Result<RuntimeExecuteResponse> {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        Ok(RuntimeExecuteResponse {
+            result: serde_json::json!({
+                "error": format!("{:?}", error),
+                "context": context,
+            }),
+            execution_time_ms: 0,
+            memory_usage_bytes: None,
+        })
+    }
+    
+    fn parse_runtime_response(&self, response_bytes: &[u8]) -> Result<RuntimeExecuteResponse> {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
+        let response: serde_json::Value = serde_json::from_slice(response_bytes)?;
+        
+        let result = response.get("result").ok_or_else(|| {
+            Error::Runtime("Missing 'result' field in runtime response".to_string())
+        })?;
+        
+        let execution_time_ms = response.get("execution_time_ms")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| {
+                Error::Runtime("Missing or invalid 'execution_time_ms' field in runtime response".to_string())
+            })?;
+        
+        let memory_usage_bytes = response.get("memory_usage_bytes")
+            .and_then(|v| v.as_u64());
+        
+        Ok(RuntimeExecuteResponse {
+            result: result.clone(),
+            execution_time_ms: execution_time_ms as u32,
+            memory_usage_bytes: memory_usage_bytes,
+        })
+    }
+}
