@@ -302,7 +302,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_functions() {
-        let function_manager = FunctionManager::new(MockPostgresPool::new());
+        let pool = MockPostgresPool::new()
+            .with_query_opt_result(Ok(None));
+        
+        let function_manager = FunctionManager::new(pool);
         
         let query = FunctionQuery {
             language: Some("nodejs".to_string()),
@@ -312,5 +315,43 @@ mod tests {
             per_page: Some(10),
         };
         
+        let result = function_manager.get_functions(&query).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+    
+    #[tokio::test]
+    async fn test_get_function() {
+        let pool = MockPostgresPool::new()
+            .with_query_opt_result(Ok(None));
+        
+        let function_manager = FunctionManager::new(pool);
+        let result = function_manager.get_function("nodejs-calculator").await;
+        
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+    
+    #[tokio::test]
+    async fn test_create_function() {
+        let pool = MockPostgresPool::new();
+        let function_manager = FunctionManager::new(pool);
+        
+        let function = create_test_function();
+        let result = function_manager.create_function(&function).await;
+        
+        assert!(result.is_ok());
+    }
+    
+    #[tokio::test]
+    async fn test_update_function() {
+        let pool = MockPostgresPool::new();
+        
+        let function_manager = FunctionManager::new(pool);
+        
+        let function = create_test_function();
+        let result = function_manager.update_function(&function).await;
+        
+        assert!(result.is_ok());
     }
 }
