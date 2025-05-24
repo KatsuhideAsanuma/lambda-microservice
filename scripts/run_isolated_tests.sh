@@ -23,6 +23,7 @@ cargo test --features test-isolated
 RESULT=$?
 
 echo "Cleaning up test environment..."
+cd ..
 ./scripts/set_docker_env.sh ./scripts/docker_compose_compat.sh -f docker-compose.test.yml down
 rm -rf $TEST_ENV_DIR
 
