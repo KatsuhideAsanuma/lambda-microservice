@@ -56,7 +56,7 @@ impl ProtocolAdapter for JsonProtocolAdapter {
     }
 }
 
-mod grpc;
+pub mod grpc;
 use grpc::GrpcProtocolAdapter;
 
 pub struct ProtocolFactory {

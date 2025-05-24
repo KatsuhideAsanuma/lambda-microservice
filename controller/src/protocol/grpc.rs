@@ -24,7 +24,7 @@ use runtime::{
     ConfigRequest, ConfigResponse,
 };
 
-struct CircuitBreakerConfig {
+pub struct CircuitBreakerConfig {
     failure_threshold: usize,
     reset_timeout: Duration,
 }
@@ -35,7 +35,7 @@ enum CircuitState {
     HalfOpen,
 }
 
-struct CircuitBreaker {
+pub struct CircuitBreaker {
     state: Mutex<CircuitState>,
     failures: AtomicUsize,
     last_failure: Mutex<std::time::Instant>,
@@ -43,7 +43,7 @@ struct CircuitBreaker {
 }
 
 impl CircuitBreaker {
-    fn new(config: CircuitBreakerConfig) -> Self {
+    pub fn new(config: CircuitBreakerConfig) -> Self {
         Self {
             state: Mutex::new(CircuitState::Closed),
             failures: AtomicUsize::new(0),
@@ -52,13 +52,13 @@ impl CircuitBreaker {
         }
     }
     
-    fn record_success(&self) {
+    pub fn record_success(&self) {
         self.failures.store(0, Ordering::SeqCst);
         let mut state = self.state.lock().unwrap();
         *state = CircuitState::Closed;
     }
     
-    fn record_failure(&self) -> bool {
+    pub fn record_failure(&self) -> bool {
         let failures = self.failures.fetch_add(1, Ordering::SeqCst) + 1;
         *self.last_failure.lock().unwrap() = std::time::Instant::now();
         
@@ -82,7 +82,7 @@ impl CircuitBreaker {
         }
     }
     
-    fn allow_request(&self) -> bool {
+    pub fn allow_request(&self) -> bool {
         let mut state = self.state.lock().unwrap();
         
         match *state {
@@ -139,7 +139,7 @@ impl GrpcProtocolAdapter {
         }
     }
     
-    fn get_circuit_breaker(&self, url: &str) -> Arc<CircuitBreaker> {
+    pub fn get_circuit_breaker(&self, url: &str) -> Arc<CircuitBreaker> {
         let mut breakers = self.circuit_breakers.lock().unwrap();
         
         breakers.entry(url.to_string()).or_insert_with(|| {
@@ -150,7 +150,7 @@ impl GrpcProtocolAdapter {
         }).clone()
     }
     
-    fn get_timeout(&self, operation: &str) -> Duration {
+    pub fn get_timeout(&self, operation: &str) -> Duration {
         match operation {
             "execute" => self.timeout_config.execute,
             "initialize" => self.timeout_config.initialize,
@@ -186,7 +186,7 @@ impl GrpcProtocolAdapter {
         Ok(client)
     }
     
-    async fn with_retry<F, Fut, T>(&self, url: &str, _operation: &str, f: F) -> Result<T>
+    pub async fn with_retry<F, Fut, T>(&self, url: &str, _operation: &str, f: F) -> Result<T>
     where
         F: Fn() -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<T>> + Send,
@@ -229,7 +229,7 @@ impl GrpcProtocolAdapter {
         Err(Error::Runtime("Failed to execute gRPC request after retries".to_string()))
     }
     
-    fn degraded_operation(&self, error: &Error, operation: &str) -> Result<Vec<u8>> {
+    pub fn degraded_operation(&self, error: &Error, operation: &str) -> Result<Vec<u8>> {
         warn!("Using degraded operation for {}: {}", operation, error);
         
         match operation {
