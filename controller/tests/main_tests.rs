@@ -61,6 +61,9 @@ async fn test_app_configuration() {
             .configure(api::configure)
     ).await;
     
+    let req = test::TestRequest::get().uri("/health").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
 }
 
 #[tokio::test]

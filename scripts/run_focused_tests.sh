@@ -18,8 +18,8 @@ rm -rf target/debug/deps/lambda_microservice_controller-*
 if [ "$MODULE" = "main" ]; then
     RUST_BACKTRACE=1 cargo test --test main_tests -- --nocapture
 elif [ "$MODULE" = "openfaas" ]; then
-    RUST_BACKTRACE=1 cargo test --lib -- openfaas::tests::tests:: --nocapture
-    RUST_BACKTRACE=1 cargo test --test openfaas_tests -- --nocapture
+    RUST_BACKTRACE=1 cargo test --features test-integration --lib -- openfaas::tests:: --nocapture
+    RUST_BACKTRACE=1 cargo test --features test-integration --test openfaas_tests -- --nocapture
 else
     RUST_BACKTRACE=1 cargo test --lib -- ${MODULE}::tests:: --nocapture
     if [ -f "tests/${MODULE}_tests.rs" ]; then
