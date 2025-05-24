@@ -7,6 +7,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::Row;
 use serde::{Serialize, Deserialize};
+use std::pin::Pin;
+use std::future::Future;
 
 #[derive(Clone)]
 pub struct MockDatabaseLogger {
