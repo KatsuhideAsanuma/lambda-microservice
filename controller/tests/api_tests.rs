@@ -9,7 +9,7 @@ use lambda_microservice_controller::{
     function::{Function, FunctionQuery},
     logger::DatabaseLoggerTrait,
     mocks::{MockDatabaseLogger, MockPostgresPool},
-    runtime::{RuntimeExecuteResponse, RuntimeType},
+    runtime::{RuntimeExecuteResponse, RuntimeType, RuntimeConfig, RuntimeSelectionStrategy},
     session::{Session, SessionStatus},
 };
 use actix_web::{
@@ -22,6 +22,7 @@ use mockall::predicate::*;
 use mockall::*;
 use serde_json::json;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 mock! {
@@ -48,40 +49,121 @@ mock! {
     }
 }
 
-mock! {
-    pub RuntimeManager {}
+#[derive(Clone)]
+pub struct MockRuntimeManager {
+    execute_result: Arc<Mutex<Result<RuntimeExecuteResponse>>>,
+    compile_rust_script_result: Arc<Mutex<Result<Vec<u8>>>>,
+    execute_wasm_result: Arc<Mutex<Result<RuntimeExecuteResponse>>>,
+    execute_in_container_result: Arc<Mutex<Result<RuntimeExecuteResponse>>>,
+    compile_with_wasmtime_result: Arc<Mutex<Result<Vec<u8>>>>,
+    config: lambda_microservice_controller::runtime::RuntimeConfig,
+}
 
-    #[async_trait]
-    impl RuntimeManagerTrait for RuntimeManager {
-        async fn execute<'a>(
-            &'a self,
-            session: &'a Session,
-            params: serde_json::Value,
-        ) -> Result<RuntimeExecuteResponse>;
-        
-        async fn compile_rust_script<'a>(&'a self, session: &'a Session) -> Result<Vec<u8>>;
-        
-        async fn execute_wasm<'a>(
-            &'a self,
-            session: &'a Session,
-            params: serde_json::Value,
-        ) -> Result<RuntimeExecuteResponse>;
-        
-        async fn execute_in_container<'a>(
-            &'a self,
-            runtime_type: RuntimeType,
-            session: &'a Session,
-            params: serde_json::Value,
-        ) -> Result<RuntimeExecuteResponse>;
-        
-        async fn compile_with_wasmtime<'a>(
-            &'a self,
-            script_content: &'a str,
-            memory_limit_bytes: u64,
-        ) -> Result<Vec<u8>>;
-        
-        #[cfg(test)]
-        fn get_config(&self) -> &lambda_microservice_controller::config::RuntimeConfig;
+impl MockRuntimeManager {
+    pub fn new() -> Self {
+        Self {
+            execute_result: Arc::new(Mutex::new(Ok(RuntimeExecuteResponse {
+                result: json!({}),
+                execution_time_ms: 0,
+                memory_usage_bytes: None,
+            }))),
+            compile_rust_script_result: Arc::new(Mutex::new(Ok(vec![]))),
+            execute_wasm_result: Arc::new(Mutex::new(Ok(RuntimeExecuteResponse {
+                result: json!({}),
+                execution_time_ms: 0,
+                memory_usage_bytes: None,
+            }))),
+            execute_in_container_result: Arc::new(Mutex::new(Ok(RuntimeExecuteResponse {
+                result: json!({}),
+                execution_time_ms: 0,
+                memory_usage_bytes: None,
+            }))),
+            compile_with_wasmtime_result: Arc::new(Mutex::new(Ok(vec![]))),
+            config: lambda_microservice_controller::runtime::RuntimeConfig {
+                nodejs_runtime_url: "http://localhost:8081".to_string(),
+                python_runtime_url: "http://localhost:8082".to_string(),
+                rust_runtime_url: "http://localhost:8083".to_string(),
+                timeout_seconds: 30,
+                max_script_size: 1024 * 1024,
+                wasm_compile_timeout_seconds: 60,
+                selection_strategy: lambda_microservice_controller::runtime::RuntimeSelectionStrategy::PrefixMatching,
+                runtime_mappings: vec![],
+                kubernetes_namespace: None,
+                redis_url: None,
+                cache_ttl_seconds: Some(3600),
+                runtime_max_retries: 3,
+            },
+        }
+    }
+
+    pub fn with_execute_result(mut self, result: Result<RuntimeExecuteResponse>) -> Self {
+        self.execute_result = Arc::new(Mutex::new(result));
+        self
+    }
+
+    pub fn with_compile_rust_script_result(mut self, result: Result<Vec<u8>>) -> Self {
+        self.compile_rust_script_result = Arc::new(Mutex::new(result));
+        self
+    }
+
+    pub fn with_execute_wasm_result(mut self, result: Result<RuntimeExecuteResponse>) -> Self {
+        self.execute_wasm_result = Arc::new(Mutex::new(result));
+        self
+    }
+
+    pub fn with_execute_in_container_result(mut self, result: Result<RuntimeExecuteResponse>) -> Self {
+        self.execute_in_container_result = Arc::new(Mutex::new(result));
+        self
+    }
+
+    pub fn with_compile_with_wasmtime_result(mut self, result: Result<Vec<u8>>) -> Self {
+        self.compile_with_wasmtime_result = Arc::new(Mutex::new(result));
+        self
+    }
+}
+
+#[async_trait]
+impl RuntimeManagerTrait for MockRuntimeManager {
+    async fn execute<'a>(
+        &'a self,
+        _session: &'a Session,
+        _params: serde_json::Value,
+    ) -> Result<RuntimeExecuteResponse> {
+        self.execute_result.lock().await.clone()
+    }
+    
+    async fn compile_rust_script<'a>(&'a self, _session: &'a Session) -> Result<Vec<u8>> {
+        self.compile_rust_script_result.lock().await.clone()
+    }
+    
+    async fn execute_wasm<'a>(
+        &'a self,
+        _session: &'a Session,
+        _params: serde_json::Value,
+    ) -> Result<RuntimeExecuteResponse> {
+        self.execute_wasm_result.lock().await.clone()
+    }
+    
+    async fn execute_in_container<'a>(
+        &'a self,
+        _runtime_type: RuntimeType,
+        _session: &'a Session,
+        _params: serde_json::Value,
+    ) -> Result<RuntimeExecuteResponse> {
+        self.execute_in_container_result.lock().await.clone()
+    }
+    
+    async fn compile_with_wasmtime<'a>(
+        &'a self,
+        _script_content: &'a str,
+        _memory_limit_bytes: u64,
+    ) -> Result<Vec<u8>> {
+        self.compile_with_wasmtime_result.lock().await.clone()
+    }
+    
+    #[cfg(test)]
+    fn get_config(&self) -> &lambda_microservice_controller::runtime::RuntimeConfig {
+        &self.config
     }
 }
 
@@ -322,7 +404,6 @@ async fn test_initialize_session_creation_error() {
 #[tokio::test]
 async fn test_execute_runtime_error() {
     let mut mock_session_manager = MockSessionManager::new();
-    let mut mock_runtime_manager = MockRuntimeManager::new();
     let mock_function_manager = MockFunctionManager::new();
     let mock_db_logger = MockDatabaseLogger::new();
     
@@ -334,9 +415,8 @@ async fn test_execute_runtime_error() {
         .with(eq(request_id.clone()))
         .returning(move |_| Ok(Some(session.clone())));
     
-    mock_runtime_manager
-        .expect_execute()
-        .returning(|_, _| Err(Error::Runtime("Runtime execution error".to_string())));
+    let mock_runtime_manager = MockRuntimeManager::new()
+        .with_execute_result(Err(Error::Runtime("Runtime execution error".to_string())));
     
     let app = test::init_service(
         App::new()
@@ -368,7 +448,6 @@ async fn test_execute_runtime_error() {
 #[tokio::test]
 async fn test_execute_session_update_error() {
     let mut mock_session_manager = MockSessionManager::new();
-    let mut mock_runtime_manager = MockRuntimeManager::new();
     let mock_function_manager = MockFunctionManager::new();
     let mock_db_logger = MockDatabaseLogger::new();
     
@@ -380,9 +459,8 @@ async fn test_execute_session_update_error() {
         .with(eq(request_id.clone()))
         .returning(move |_| Ok(Some(session.clone())));
     
-    mock_runtime_manager
-        .expect_execute()
-        .returning(|_, _| Ok(RuntimeExecuteResponse {
+    let mock_runtime_manager = MockRuntimeManager::new()
+        .with_execute_result(Ok(RuntimeExecuteResponse {
             result: json!({"output": "test result"}),
             execution_time_ms: 123,
             memory_usage_bytes: Some(1024),
