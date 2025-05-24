@@ -1,9 +1,11 @@
-use actix_web::{test, App, web};
+use actix_web::{test, App, web, http::StatusCode};
 use lambda_microservice_controller::{
-    api, config::Config, database::tests::MockPostgresPool, 
+    api, config::Config, 
     function::FunctionManager, session::SessionManager,
-    cache::tests::MockRedisPool, runtime::RuntimeManager,
+    runtime::RuntimeManager,
     logger::DatabaseLogger,
+    database::tests::MockPostgresPool,
+    cache::tests::MockRedisPool,
 };
 use std::sync::Arc;
 
@@ -60,7 +62,6 @@ async fn test_app_configuration() {
             .configure(api::configure)
     ).await;
     
-    assert!(app.is_ok());
 }
 
 #[tokio::test]
@@ -99,7 +100,7 @@ async fn test_health_endpoint() {
     
     let req = test::TestRequest::get().uri("/health").to_request();
     
-    let resp = test::call_service(&app.unwrap(), req).await;
+    let resp = test::call_service(&app, req).await;
     
     assert!(resp.status().is_success());
 }
