@@ -18,7 +18,7 @@ sleep 5
 
 echo "Running isolated tests..."
 cd controller
-cargo test --features test-isolated -- -v
+cargo test --features test-isolated
 
 RESULT=$?
 
