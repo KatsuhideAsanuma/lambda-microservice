@@ -1,6 +1,7 @@
 use lambda_microservice_controller::{
+    error::Result,
     openfaas::{OpenFaaSClient, OpenFaaSRequest, OpenFaaSResponse},
-    runtime::RuntimeType,
+    runtime::{RuntimeExecuteResponse, RuntimeType},
     session::{Session, SessionStatus},
 };
 use chrono::Utc;
@@ -8,8 +9,6 @@ use serde_json::json;
 use uuid::Uuid;
 
 fn create_test_session() -> Session {
-    use lambda_microservice_controller::session::SessionStatus;
-    
     Session {
         request_id: Uuid::new_v4().to_string(),
         language_title: "nodejs-calculator".to_string(),
@@ -52,12 +51,7 @@ async fn test_build_request() {
     let session = create_test_session();
     let params = json!({"input": "test"});
     
-    let request = OpenFaaSRequest {
-        request_id: session.request_id.clone(),
-        params: params.clone(),
-        context: session.context.clone(),
-        script_content: session.script_content.clone(),
-    };
+    let request = client.build_request("nodejs-runtime", &session, params.clone());
     
     assert_eq!(request.request_id, session.request_id);
     assert_eq!(request.params, params);
@@ -79,4 +73,35 @@ async fn test_openfaas_response_serialization() {
     assert_eq!(deserialized.result, response.result);
     assert_eq!(deserialized.execution_time_ms, response.execution_time_ms);
     assert_eq!(deserialized.memory_usage_bytes, response.memory_usage_bytes);
+    
+    let runtime_response = RuntimeExecuteResponse {
+        result: response.result.clone(),
+        execution_time_ms: response.execution_time_ms,
+        memory_usage_bytes: response.memory_usage_bytes,
+    };
+    
+    assert_eq!(runtime_response.result, response.result);
+    assert_eq!(runtime_response.execution_time_ms, response.execution_time_ms);
+    assert_eq!(runtime_response.memory_usage_bytes, response.memory_usage_bytes);
+}
+
+#[tokio::test]
+async fn test_openfaas_request_serialization() {
+    let session = create_test_session();
+    let params = json!({"input": "test"});
+    
+    let request = OpenFaaSRequest {
+        request_id: session.request_id.clone(),
+        params: params.clone(),
+        context: session.context.clone(),
+        script_content: session.script_content.clone(),
+    };
+    
+    let serialized = serde_json::to_string(&request).unwrap();
+    let deserialized: OpenFaaSRequest = serde_json::from_str(&serialized).unwrap();
+    
+    assert_eq!(deserialized.request_id, request.request_id);
+    assert_eq!(deserialized.params, request.params);
+    assert_eq!(deserialized.context, request.context);
+    assert_eq!(deserialized.script_content, request.script_content);
 }
