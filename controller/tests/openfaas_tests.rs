@@ -1,6 +1,6 @@
 use lambda_microservice_controller::{
     error::Result,
-    openfaas::{OpenFaaSClient, OpenFaaSRequest, OpenFaaSResponse},
+    openfaas::{OpenFaaSClient, OpenFaaSRequest, OpenFaaSResponse, MockOpenFaaSClient},
     runtime::{RuntimeExecuteResponse, RuntimeType},
     session::Session,
 };

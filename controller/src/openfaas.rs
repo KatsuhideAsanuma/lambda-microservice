@@ -107,4 +107,75 @@ impl OpenFaaSClient {
             RuntimeType::Rust => "rust-runtime".to_string(),
         }
     }
+    
+    pub fn build_request(&self, function_name: &str, session: &Session, params: serde_json::Value) -> OpenFaaSRequest {
+        OpenFaaSRequest {
+            request_id: session.request_id.clone(),
+            params,
+            context: session.context.clone(),
+            script_content: session.script_content.clone(),
+        }
+    }
 }
+
+#[cfg(test)]
+pub mod tests {
+    #[cfg(feature = "test-integration")]
+    pub mod test_utils {
+        use super::super::*;
+        use crate::runtime::RuntimeExecuteResponse;
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+        
+        #[derive(Clone)]
+        pub struct MockOpenFaaSClient {
+            invoke_result: Arc<Mutex<Result<RuntimeExecuteResponse>>>,
+        }
+        
+        impl MockOpenFaaSClient {
+            pub fn new() -> Self {
+                Self {
+                    invoke_result: Arc::new(Mutex::new(Ok(RuntimeExecuteResponse {
+                        result: serde_json::json!({"status": "success"}),
+                        execution_time_ms: 100,
+                        memory_usage_bytes: Some(1024),
+                    }))),
+                }
+            }
+            
+            pub fn with_invoke_result(mut self, result: Result<RuntimeExecuteResponse>) -> Self {
+                self.invoke_result = Arc::new(Mutex::new(result));
+                self
+            }
+            
+            pub async fn invoke_function(
+                &self,
+                _function_name: &str,
+                _session: &Session,
+                _params: serde_json::Value,
+            ) -> Result<RuntimeExecuteResponse> {
+                self.invoke_result.lock().await.clone()
+            }
+            
+            pub fn get_function_name_for_runtime(&self, runtime_type: RuntimeType) -> String {
+                match runtime_type {
+                    RuntimeType::NodeJs => "nodejs-runtime".to_string(),
+                    RuntimeType::Python => "python-runtime".to_string(),
+                    RuntimeType::Rust => "rust-runtime".to_string(),
+                }
+            }
+            
+            pub fn build_request(&self, _function_name: &str, session: &Session, params: serde_json::Value) -> OpenFaaSRequest {
+                OpenFaaSRequest {
+                    request_id: session.request_id.clone(),
+                    params,
+                    context: session.context.clone(),
+                    script_content: session.script_content.clone(),
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "test-integration")]
+pub use self::tests::test_utils::*;

@@ -1,5 +1,5 @@
 use lambda_microservice_controller::{
-    cache::{RedisClient, RedisPool, tests::MockRedisPool},
+    cache::{RedisClient, RedisPool, MockRedisPool},
     error::Result,
     session::Session,
 };

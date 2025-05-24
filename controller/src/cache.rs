@@ -127,6 +127,9 @@ impl RedisPool {
 
 #[cfg(test)]
 mod tests {
+
+#[cfg(feature = "test-integration")]
+pub mod test_utils {
     use super::*;
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -480,3 +483,10 @@ mod tests {
         assert!(result.is_ok());
     }
 }
+
+#[cfg(feature = "test-integration")]
+pub use self::tests::test_utils::*;
+
+#[cfg(test)]
+#[cfg(feature = "test-integration")]
+impl tests::test_utils {}

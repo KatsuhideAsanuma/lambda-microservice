@@ -1,5 +1,5 @@
 use lambda_microservice_controller::{
-    database::{PostgresPool, tests::MockPostgresPool},
+    database::{PostgresPool, MockPostgresPool},
     error::{Error, Result},
     session::DbPoolTrait,
 };
