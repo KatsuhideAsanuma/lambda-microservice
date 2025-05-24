@@ -277,14 +277,18 @@ impl MockRuntimeManager {
             }))),
             compile_result: Arc::new(Mutex::new(Ok(vec![0, 1, 2, 3]))), // Mock WASM binary
             config: RuntimeConfig {
-                nodejs_url: "http://localhost:8081".to_string(),
-                python_url: "http://localhost:8082".to_string(),
-                rust_url: "http://localhost:8083".to_string(),
+                nodejs_runtime_url: "http://localhost:8081".to_string(),
+                python_runtime_url: "http://localhost:8082".to_string(),
+                rust_runtime_url: "http://localhost:8083".to_string(),
                 timeout_seconds: 30,
-                fallback_timeout_seconds: 15,
-                max_retries: 3,
+                max_script_size: 1024 * 1024, // 1MB
                 wasm_compile_timeout_seconds: 60,
-                wasm_temp_dir: "/tmp".to_string(),
+                selection_strategy: RuntimeSelectionStrategy::PrefixMatching,
+                runtime_mappings: vec![],
+                kubernetes_namespace: Some("default".to_string()),
+                redis_url: Some("redis://localhost:6379".to_string()),
+                cache_ttl_seconds: Some(3600),
+                runtime_max_retries: 3,
             },
             call_count: Arc::new(AtomicUsize::new(0)),
         }
