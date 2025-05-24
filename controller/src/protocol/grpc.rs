@@ -10,6 +10,30 @@ use tonic::transport::{Channel, Endpoint};
 use tracing::{debug, error, warn, info};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum RequestType {
+    Execute,
+    Initialize,
+    HealthCheck,
+    Metrics,
+    Logs,
+    Config,
+}
+
+impl RequestType {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "execute" => Some(RequestType::Execute),
+            "initialize" => Some(RequestType::Initialize),
+            "health_check" => Some(RequestType::HealthCheck),
+            "metrics" => Some(RequestType::Metrics),
+            "logs" => Some(RequestType::Logs),
+            "config" => Some(RequestType::Config),
+            _ => None,
+        }
+    }
+}
+
 pub mod runtime {
     tonic::include_proto!("runtime");
 }
@@ -24,9 +48,19 @@ use runtime::{
     ConfigRequest, ConfigResponse,
 };
 
+#[async_trait]
+pub trait GrpcClient: Send + Sync {
+    async fn send_execute_request(&self, payload: String, timeout_ms: u64) -> Result<String>;
+    async fn send_initialize_request(&self, payload: String, timeout_ms: u64) -> Result<String>;
+    async fn send_health_check_request(&self, payload: String, timeout_ms: u64) -> Result<String>;
+    async fn send_metrics_request(&self, payload: String, timeout_ms: u64) -> Result<String>;
+    async fn send_logs_request(&self, payload: String, timeout_ms: u64) -> Result<String>;
+    async fn send_config_request(&self, payload: String, timeout_ms: u64) -> Result<String>;
+}
+
 pub struct CircuitBreakerConfig {
-    failure_threshold: usize,
-    reset_timeout: Duration,
+    pub failure_threshold: usize,
+    pub reset_timeout: Duration,
 }
 
 enum CircuitState {
@@ -131,6 +165,17 @@ pub struct GrpcProtocolAdapter {
 }
 
 impl GrpcProtocolAdapter {
+    pub async fn handle_request(&self, client: Arc<dyn GrpcClient>, request_type: &str, payload: &str, timeout_ms: u64) -> Result<String> {
+        match RequestType::from_str(request_type) {
+            Some(RequestType::Execute) => client.send_execute_request(payload.to_string(), timeout_ms).await,
+            Some(RequestType::Initialize) => client.send_initialize_request(payload.to_string(), timeout_ms).await,
+            Some(RequestType::HealthCheck) => client.send_health_check_request(payload.to_string(), timeout_ms).await,
+            Some(RequestType::Metrics) => client.send_metrics_request(payload.to_string(), timeout_ms).await,
+            Some(RequestType::Logs) => client.send_logs_request(payload.to_string(), timeout_ms).await,
+            Some(RequestType::Config) => client.send_config_request(payload.to_string(), timeout_ms).await,
+            None => Err(Error::Runtime(format!("Unknown request type: {}", request_type))),
+        }
+    }
     pub fn new() -> Self {
         Self {
             client_cache: Mutex::new(HashMap::new()),
@@ -162,7 +207,7 @@ impl GrpcProtocolAdapter {
         }
     }
     
-    async fn get_client(&self, url: &str) -> Result<RuntimeServiceClient<Channel>> {
+    pub async fn get_client(&self, url: &str) -> Result<RuntimeServiceClient<Channel>> {
         {
             let cache = self.client_cache.lock().unwrap();
             if let Some(client) = cache.get(url) {
