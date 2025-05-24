@@ -315,5 +315,5 @@ pub mod test_utils {
     pub use super::tests::MockPostgresPool;
 }
 
-#[cfg(feature = "test-integration")]
+#[cfg(any(test, feature = "test-integration"))]
 pub use self::test_utils::*;
