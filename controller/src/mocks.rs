@@ -11,12 +11,14 @@ use serde::{Serialize, Deserialize};
 #[derive(Clone)]
 pub struct MockDatabaseLogger {
     log_error_result: Arc<Mutex<Result<()>>>,
+    log_request_result: Arc<Mutex<Result<()>>>,
 }
 
 impl MockDatabaseLogger {
     pub fn new() -> Self {
         Self {
             log_error_result: Arc::new(Mutex::new(Ok(()))),
+            log_request_result: Arc::new(Mutex::new(Ok(()))),
         }
     }
 
@@ -24,12 +26,48 @@ impl MockDatabaseLogger {
         self.log_error_result = Arc::new(Mutex::new(result));
         self
     }
+    
+    pub fn with_log_request_result(mut self, result: Result<()>) -> Self {
+        self.log_request_result = Arc::new(Mutex::new(result));
+        self
+    }
 }
 
 #[async_trait]
 impl DatabaseLoggerTrait for MockDatabaseLogger {
-    async fn log_error(&self, _error: &str, _context: Option<&str>) -> Result<()> {
-        self.log_error_result.lock().await.clone()
+    fn log_request(
+        &self,
+        _request_id: String,
+        _language_title: String,
+        _client_ip: Option<String>,
+        _user_id: Option<String>,
+        _request_headers: Option<serde_json::Value>,
+        _request_payload: Option<serde_json::Value>,
+        _response_payload: Option<serde_json::Value>,
+        _status_code: i32,
+        _duration_ms: i64,
+        _cached: bool,
+        _error_details: Option<serde_json::Value>,
+        _runtime_metrics: Option<serde_json::Value>,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
+        let result = self.log_request_result.clone();
+        Box::pin(async move {
+            result.lock().await.clone()
+        })
+    }
+    
+    fn log_error(
+        &self,
+        _request_log_id: String,
+        _error_code: String,
+        _error_message: String,
+        _stack_trace: Option<String>,
+        _context: Option<serde_json::Value>,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
+        let result = self.log_error_result.clone();
+        Box::pin(async move {
+            result.lock().await.clone()
+        })
     }
 }
 
