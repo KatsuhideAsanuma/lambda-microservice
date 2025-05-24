@@ -160,11 +160,6 @@ impl RuntimeManagerTrait for MockRuntimeManager {
     ) -> Result<Vec<u8>> {
         self.compile_with_wasmtime_result.lock().await.clone()
     }
-    
-    #[cfg(test)]
-    fn get_config(&self) -> &lambda_microservice_controller::runtime::RuntimeConfig {
-        &self.config
-    }
 }
 
 mock! {
