@@ -7,6 +7,7 @@ pub mod error;
 pub mod function;
 pub mod kubernetes;
 pub mod logger;
+pub mod mocks;
 pub mod openfaas;
 pub mod protocol;
 pub mod runtime;

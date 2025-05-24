@@ -1,11 +1,10 @@
-use actix_web::{test, App, web, http::StatusCode};
+use actix_web::{test, App, web};
 use lambda_microservice_controller::{
     api, config::Config, 
     function::FunctionManager, session::SessionManager,
     runtime::RuntimeManager,
     logger::DatabaseLogger,
-    database::tests::MockPostgresPool,
-    cache::tests::MockRedisPool,
+    mocks::{MockPostgresPool, MockRedisPool},
 };
 use std::sync::Arc;
 
