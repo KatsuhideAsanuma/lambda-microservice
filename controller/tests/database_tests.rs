@@ -2,70 +2,8 @@ use lambda_microservice_controller::{
     database::PostgresPool,
     error::Error,
     session::{DbPoolTrait, Session, SessionStatus},
+    mocks::MockPostgresPool,
 };
-
-#[derive(Clone)]
-struct MockPostgresPool {
-    execute_result: std::sync::Arc<tokio::sync::Mutex<lambda_microservice_controller::error::Result<u64>>>,
-    query_opt_result: std::sync::Arc<tokio::sync::Mutex<lambda_microservice_controller::error::Result<Option<tokio_postgres::Row>>>>,
-    query_one_result: std::sync::Arc<tokio::sync::Mutex<lambda_microservice_controller::error::Result<tokio_postgres::Row>>>,
-}
-
-impl MockPostgresPool {
-    fn new() -> Self {
-        Self {
-            execute_result: std::sync::Arc::new(tokio::sync::Mutex::new(Ok(1))),
-            query_opt_result: std::sync::Arc::new(tokio::sync::Mutex::new(Ok(None))),
-            query_one_result: std::sync::Arc::new(tokio::sync::Mutex::new(Err(Error::NotFound("No rows found".to_string())))),
-        }
-    }
-
-    fn with_execute_result(mut self, result: lambda_microservice_controller::error::Result<u64>) -> Self {
-        self.execute_result = std::sync::Arc::new(tokio::sync::Mutex::new(result));
-        self
-    }
-
-    fn with_query_opt_result(mut self, result: lambda_microservice_controller::error::Result<Option<tokio_postgres::Row>>) -> Self {
-        self.query_opt_result = std::sync::Arc::new(tokio::sync::Mutex::new(result));
-        self
-    }
-
-    fn with_query_one_result(mut self, result: lambda_microservice_controller::error::Result<tokio_postgres::Row>) -> Self {
-        self.query_one_result = std::sync::Arc::new(tokio::sync::Mutex::new(result));
-        self
-    }
-
-    async fn execute(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<u64> {
-        self.execute_result.lock().await.clone()
-    }
-
-    async fn query(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<Vec<tokio_postgres::Row>> {
-        Ok(Vec::new())
-    }
-
-    async fn query_one(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<tokio_postgres::Row> {
-        self.query_one_result.lock().await.clone()
-    }
-
-    async fn query_opt(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<Option<tokio_postgres::Row>> {
-        self.query_opt_result.lock().await.clone()
-    }
-}
-
-#[async_trait::async_trait]
-impl DbPoolTrait for MockPostgresPool {
-    async fn execute<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<u64> {
-        self.execute(query, params).await
-    }
-    
-    async fn query_opt<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<Option<tokio_postgres::Row>> {
-        self.query_opt(query, params).await
-    }
-    
-    async fn query_one<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<tokio_postgres::Row> {
-        self.query_one(query, params).await
-    }
-}
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -78,6 +16,54 @@ async fn test_postgres_pool_new_error() {
             assert!(matches!(e, Error::Database(_)));
         },
         _ => panic!("Expected error"),
+    }
+}
+
+#[tokio::test]
+async fn test_postgres_pool_url_parsing_with_port() {
+    let url = "postgres://user:pass@localhost:5432/testdb";
+    let result = PostgresPool::new(url).await;
+    
+    assert!(result.is_err());
+    
+    if let Err(err) = result {
+        match err {
+            Error::Database(_) | Error::Postgres(_) => {
+            },
+            _ => panic!("Expected Database or Postgres error, got {:?}", err),
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_postgres_pool_url_parsing_without_port() {
+    let url = "postgres://user:pass@localhost/testdb";
+    let result = PostgresPool::new(url).await;
+    
+    assert!(result.is_err());
+    
+    if let Err(err) = result {
+        match err {
+            Error::Database(_) | Error::Postgres(_) => {
+            },
+            _ => panic!("Expected Database or Postgres error, got {:?}", err),
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_postgres_pool_url_parsing_with_params() {
+    let url = "postgres://user:pass@localhost:5432/testdb?connect_timeout=10&application_name=lambda_microservice";
+    let result = PostgresPool::new(url).await;
+    
+    assert!(result.is_err());
+    
+    if let Err(err) = result {
+        match err {
+            Error::Database(_) | Error::Postgres(_) => {
+            },
+            _ => panic!("Expected Database or Postgres error, got {:?}", err),
+        }
     }
 }
 
