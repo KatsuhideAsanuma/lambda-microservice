@@ -279,6 +279,7 @@ impl<D: DbPoolTrait + Send + Sync> api::FunctionManagerTrait for FunctionManager
 mod tests {
     use super::*;
     use crate::database::tests::MockPostgresPool;
+    use crate::api::FunctionManagerTrait;
     use chrono::Utc;
 
     fn create_test_function() -> Function {
