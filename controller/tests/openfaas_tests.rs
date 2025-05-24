@@ -108,7 +108,7 @@ async fn test_openfaas_request_serialization() {
 
 #[tokio::test]
 async fn test_invoke_function_with_mock() {
-    use lambda_microservice_controller::openfaas::tests::test_utils::MockOpenFaaSClient;
+    use lambda_microservice_controller::mocks::MockOpenFaaSClient;
     
     let success_response = RuntimeExecuteResponse {
         result: json!({"output": "test result"}),
@@ -134,7 +134,7 @@ async fn test_invoke_function_with_mock() {
 
 #[tokio::test]
 async fn test_invoke_function_error() {
-    use lambda_microservice_controller::openfaas::tests::test_utils::MockOpenFaaSClient;
+    use lambda_microservice_controller::mocks::MockOpenFaaSClient;
     
     let error = Error::Runtime("OpenFaaS function returned error status 500: Internal Server Error".to_string());
     
@@ -160,7 +160,7 @@ async fn test_invoke_function_error() {
 
 #[tokio::test]
 async fn test_invoke_function_parse_error() {
-    use lambda_microservice_controller::openfaas::tests::test_utils::MockOpenFaaSClient;
+    use lambda_microservice_controller::mocks::MockOpenFaaSClient;
     
     let error = Error::Runtime("Failed to parse OpenFaaS response: expected value at line 1 column 1".to_string());
     

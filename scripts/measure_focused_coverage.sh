@@ -17,10 +17,14 @@ rm -rf target/debug/deps/lambda_microservice_controller-*
 
 if [ "$MODULE" = "openfaas" ]; then
     RUST_BACKTRACE=1 cargo tarpaulin --features test-integration --lib --out Html --output-dir ../coverage-report/${MODULE} -- ${MODULE}::tests
+    RUST_BACKTRACE=1 cargo tarpaulin --features test-integration --test openfaas_tests --out Html --output-dir ../coverage-report/${MODULE}-tests
 elif [ "$MODULE" = "main" ]; then
     RUST_BACKTRACE=1 cargo tarpaulin --test main_tests --out Html --output-dir ../coverage-report/${MODULE}
 else
     RUST_BACKTRACE=1 cargo tarpaulin --lib --out Html --output-dir ../coverage-report/${MODULE} -- ${MODULE}::tests
+    if [ -f "tests/${MODULE}_tests.rs" ]; then
+        RUST_BACKTRACE=1 cargo tarpaulin --test ${MODULE}_tests --out Html --output-dir ../coverage-report/${MODULE}-tests
+    fi
 fi
 
 echo "✅ ${MODULE} モジュールのテストカバレッジ測定完了"
