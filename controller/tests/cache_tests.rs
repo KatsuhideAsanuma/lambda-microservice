@@ -1,11 +1,10 @@
 use lambda_microservice_controller::{
-    cache::{RedisClient, RedisPool, tests::MockRedisPool},
-    error::Result,
-    session::Session,
+    cache::RedisClient,
+    error::Error,
+    session::{Session, SessionStatus},
 };
 use serde::{Serialize, Deserialize};
 use chrono::Utc;
-use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 struct TestData {
@@ -27,6 +26,8 @@ async fn test_redis_client_new() {
 
 #[tokio::test]
 async fn test_redis_client_with_ttl() {
+    use lambda_microservice_controller::cache::tests::MockRedisPool;
+    
     let pool = MockRedisPool::new();
     let client = RedisClient {
         pool,
@@ -40,6 +41,8 @@ async fn test_redis_client_with_ttl() {
 #[tokio::test]
 async fn test_cache_wasm_module() {
     let test_wasm = vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]; // Valid WebAssembly header
+    
+    use lambda_microservice_controller::cache::tests::MockRedisPool;
     
     let pool = MockRedisPool::new()
         .with_set_ex_result(Ok(()))
@@ -82,6 +85,8 @@ async fn test_cache_session() {
         compile_error: None,
         metadata: None,
     };
+    
+    use lambda_microservice_controller::cache::tests::MockRedisPool;
     
     let pool = MockRedisPool::new()
         .with_set_ex_result(Ok(()));

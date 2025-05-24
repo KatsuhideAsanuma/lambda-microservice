@@ -119,6 +119,7 @@ impl OpenFaaSClient {
 }
 
 #[cfg(any(test, feature = "test-integration"))]
+#[cfg_attr(test, path = "openfaas/tests.rs")]
 pub mod tests {
     #[cfg(feature = "test-integration")]
     pub mod test_utils {

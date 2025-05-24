@@ -1,10 +1,9 @@
 use lambda_microservice_controller::{
     database::{PostgresPool, tests::MockPostgresPool},
-    error::{Error, Result},
+    error::Error,
     session::{DbPoolTrait, Session, SessionStatus},
 };
 use chrono::Utc;
-use tokio_postgres::Row;
 use uuid::Uuid;
 
 #[tokio::test]

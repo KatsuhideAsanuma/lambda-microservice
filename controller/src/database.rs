@@ -97,6 +97,7 @@ impl PostgresPool {
 }
 
 #[cfg(any(test, feature = "test-integration"))]
+#[cfg_attr(test, path = "database/tests.rs")]
 pub mod tests {
     use super::*;
     use std::sync::Arc;

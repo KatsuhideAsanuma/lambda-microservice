@@ -126,6 +126,7 @@ impl RedisPool {
 
 
 #[cfg(any(test, feature = "test-integration"))]
+#[cfg_attr(test, path = "cache/tests.rs")]
 pub mod tests {
     use super::*;
     use std::sync::Arc;

@@ -1,8 +1,7 @@
 use lambda_microservice_controller::{
-    error::Result,
-    openfaas::{OpenFaaSClient, OpenFaaSRequest, OpenFaaSResponse, MockOpenFaaSClient},
-    runtime::{RuntimeExecuteResponse, RuntimeType},
-    session::Session,
+    openfaas::{OpenFaaSClient, OpenFaaSRequest, OpenFaaSResponse},
+    runtime::RuntimeType,
+    session::{Session, SessionStatus},
 };
 use chrono::Utc;
 use serde_json::json;
