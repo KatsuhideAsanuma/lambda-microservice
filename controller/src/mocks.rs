@@ -255,7 +255,8 @@ impl MockOpenFaaSClient {
     }
 }
 
-use crate::runtime::{RuntimeManagerTrait, RuntimeConfig};
+use crate::api::RuntimeManagerTrait;
+use crate::runtime::RuntimeConfig;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone)]
