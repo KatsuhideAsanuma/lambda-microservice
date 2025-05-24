@@ -166,7 +166,13 @@ mod tests {
     #[test]
     fn test_config_from_env_with_defaults() {
         clear_env_vars();
-        setup_env_vars();
+        
+        env::set_var("DATABASE_URL", "postgres://user:pass@localhost:5432/testdb");
+        env::set_var("REDIS_URL", "redis://localhost:6379");
+        env::set_var("NODEJS_RUNTIME_URL", "http://localhost:8081");
+        env::set_var("PYTHON_RUNTIME_URL", "http://localhost:8082");
+        env::set_var("RUST_RUNTIME_URL", "http://localhost:8083");
+        
         env::set_var("PORT", "8080");
 
         let config = Config::from_env().expect("Failed to load config");
