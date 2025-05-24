@@ -8,31 +8,22 @@ use lambda_microservice_controller::{
 use std::sync::Arc;
 
 fn create_test_config() -> Config {
-    let runtime_config = lambda_microservice_controller::config::RuntimeConfig {
-        nodejs_runtime_url: "http://localhost:8081".to_string(),
-        python_runtime_url: "http://localhost:8082".to_string(),
-        rust_runtime_url: "http://localhost:8083".to_string(),
-        runtime_timeout_seconds: 30,
-        runtime_fallback_timeout_seconds: 15,
-        runtime_max_retries: 3,
-        max_script_size: 1048576, // 1MB
-        wasm_compile_timeout_seconds: 60,
-        openfaas_gateway_url: "http://gateway.openfaas:8080".to_string(),
-        selection_strategy: None,
-        runtime_mappings_file: None,
-        kubernetes_namespace: None,
-        redis_url: None,
-        cache_ttl_seconds: None,
-    };
-
-    Config::from_values(
-        "0.0.0.0",
-        8080,
-        "postgres://user:pass@localhost:5432/testdb",
-        "redis://localhost:6379",
-        3600,
-        runtime_config,
-    )
+    std::env::set_var("HOST", "0.0.0.0");
+    std::env::set_var("PORT", "8080");
+    std::env::set_var("DATABASE_URL", "postgres://user:pass@localhost:5432/testdb");
+    std::env::set_var("REDIS_URL", "redis://localhost:6379");
+    std::env::set_var("SESSION_EXPIRY_SECONDS", "3600");
+    std::env::set_var("NODEJS_RUNTIME_URL", "http://localhost:8081");
+    std::env::set_var("PYTHON_RUNTIME_URL", "http://localhost:8082");
+    std::env::set_var("RUST_RUNTIME_URL", "http://localhost:8083");
+    std::env::set_var("RUNTIME_TIMEOUT_SECONDS", "30");
+    std::env::set_var("RUNTIME_FALLBACK_TIMEOUT_SECONDS", "15");
+    std::env::set_var("RUNTIME_MAX_RETRIES", "3");
+    std::env::set_var("MAX_SCRIPT_SIZE", "1048576");
+    std::env::set_var("WASM_COMPILE_TIMEOUT_SECONDS", "60");
+    std::env::set_var("OPENFAAS_GATEWAY_URL", "http://gateway.openfaas:8080");
+    
+    Config::from_env().expect("Failed to load config from environment")
 }
 
 #[tokio::test]

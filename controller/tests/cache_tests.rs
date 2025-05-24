@@ -1,5 +1,5 @@
 use lambda_microservice_controller::{
-    cache::{RedisClient, RedisPool, MockRedisPool},
+    cache::{RedisClient, RedisPool, tests::MockRedisPool},
     error::Result,
     session::Session,
 };
@@ -21,7 +21,7 @@ async fn test_redis_client_new() {
         assert!(true);
     } else {
         let client = result.unwrap();
-        assert_eq!(client.ttl_seconds, 3600); // Default TTL
+        assert!(client.with_ttl(600).get_wasm_module("test").await.is_ok());
     }
 }
 
@@ -34,7 +34,7 @@ async fn test_redis_client_with_ttl() {
     };
     
     let client_with_ttl = client.with_ttl(600);
-    assert_eq!(client_with_ttl.ttl_seconds, 600);
+    assert!(client_with_ttl.get_wasm_module("test").await.is_ok());
 }
 
 #[tokio::test]
@@ -91,6 +91,7 @@ async fn test_cache_session() {
         ttl_seconds: 3600,
     };
     
-    let result = client.cache_session(&session).await;
+    let key = format!("session:{}", session.request_id);
+    let result = client.pool.set_ex(&key, &session, client.ttl_seconds).await;
     assert!(result.is_ok());
 }

@@ -213,7 +213,7 @@ pub mod tests {
     }
 
     impl MockRedisPool {
-        fn new() -> Self {
+        pub fn new() -> Self {
             Self {
                 get_result: Arc::new(Mutex::new(Ok(None))),
                 set_ex_result: Arc::new(Mutex::new(Ok(()))),

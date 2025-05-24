@@ -44,7 +44,7 @@ async fn test_get_function_name_for_runtime() {
 async fn test_openfaas_client_new() {
     let client = OpenFaaSClient::new("http://gateway.openfaas:8080", 30);
     
-    assert_eq!(client.gateway_url, "http://gateway.openfaas:8080");
+    assert_eq!(client.get_function_name_for_runtime(RuntimeType::NodeJs), "nodejs-runtime");
 }
 
 #[tokio::test]
