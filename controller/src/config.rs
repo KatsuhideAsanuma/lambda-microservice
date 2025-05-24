@@ -212,9 +212,8 @@ mod tests {
     #[test]
     fn test_config_from_env_with_invalid_port() {
         clear_env_vars();
-        env::set_var("PORT", "8080");
         setup_env_vars();
-
+        
         env::set_var("PORT", "invalid");
 
         let result = Config::from_env();
