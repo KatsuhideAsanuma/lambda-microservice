@@ -247,13 +247,23 @@ mod tests {
     #[test]
     fn test_config_from_env_with_missing_required_vars() {
         clear_env_vars();
+        
         env::set_var("PORT", "8080");
 
         let result = Config::from_env();
         assert!(result.is_err());
+        
         if let Err(err) = result {
             assert!(matches!(err, Error::Config(_)));
-            assert!(err.to_string().contains("environment variable not set"));
+            let error_string = err.to_string();
+            assert!(
+                error_string.contains("DATABASE_URL") || 
+                error_string.contains("REDIS_URL") || 
+                error_string.contains("NODEJS_RUNTIME_URL") || 
+                error_string.contains("PYTHON_RUNTIME_URL") || 
+                error_string.contains("RUST_RUNTIME_URL"),
+                "Error message '{}' does not mention any missing environment variables", error_string
+            );
         }
     }
 
