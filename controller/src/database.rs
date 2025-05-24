@@ -309,11 +309,3 @@ pub mod tests {
         assert!(result.is_ok());
     }
 }
-
-#[cfg(all(test, feature = "test-integration"))]
-pub mod test_utils {
-    pub use super::tests::MockPostgresPool;
-}
-
-#[cfg(any(test, feature = "test-integration"))]
-pub use self::test_utils::*;
