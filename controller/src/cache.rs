@@ -6,9 +6,24 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait RedisPoolTrait: Send + Sync + 'static {
-    async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, key: &'a str) -> Result<Option<T>>;
-    async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, key: &'a str, value: &'a T, expiry_seconds: u64) -> Result<()>;
-    async fn del<'a>(&'a self, key: &'a str) -> Result<()>;
+    async fn get_value_raw(&self, key: &str) -> Result<Option<String>>;
+    async fn set_ex_raw(&self, key: &str, value: &str, expiry_seconds: u64) -> Result<()>;
+    async fn del(&self, key: &str) -> Result<()>;
+}
+
+impl dyn RedisPoolTrait {
+    pub async fn get_value<T: serde::de::DeserializeOwned + Send + Sync>(&self, key: &str) -> Result<Option<T>> {
+        let raw = self.get_value_raw(key).await?;
+        match raw {
+            Some(value) => Ok(Some(serde_json::from_str(&value)?)),
+            None => Ok(None),
+        }
+    }
+    
+    pub async fn set_ex<T: serde::Serialize + Send + Sync>(&self, key: &str, value: &T, expiry_seconds: u64) -> Result<()> {
+        let serialized = serde_json::to_string(value)?;
+        self.set_ex_raw(key, &serialized, expiry_seconds).await
+    }
 }
 
 #[derive(Clone)]
@@ -17,12 +32,21 @@ pub struct RedisPool {
 }
 
 #[derive(Clone)]
-pub struct RedisClient {
-    pool: RedisPool,
+pub struct RedisClient<P: RedisPoolTrait + Clone> {
+    pool: P,
     ttl_seconds: u64,
 }
 
-impl RedisClient {
+impl<P: RedisPoolTrait + Clone> RedisClient<P> {
+    pub fn new_with_pool(pool: P, ttl_seconds: u64) -> Self {
+        Self {
+            pool,
+            ttl_seconds,
+        }
+    }
+}
+
+impl RedisClient<RedisPool> {
     pub async fn new(redis_url: &str) -> Result<Self> {
         let pool = RedisPool::new(redis_url)?;
         Ok(Self {
@@ -37,25 +61,39 @@ impl RedisClient {
     }
     
     pub async fn get_wasm_module(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        self.pool.get_value(key).await
+        let raw = self.pool.get_value_raw(key).await?;
+        match raw {
+            Some(value) => Ok(Some(serde_json::from_str(&value)?)),
+            None => Ok(None),
+        }
     }
     
     pub async fn cache_wasm_module(&self, key: &str, wasm_bytes: &[u8]) -> Result<()> {
-        self.pool.set_ex(key, &wasm_bytes.to_vec(), self.ttl_seconds).await
+        let serialized = serde_json::to_string(&wasm_bytes.to_vec())?;
+        self.pool.set_ex_raw(key, &serialized, self.ttl_seconds).await
+    }
+    
+    pub async fn cache_session(&self, session: &crate::session::Session) -> Result<()> {
+        let key = format!("session:{}", session.request_id);
+        let serialized = serde_json::to_string(&session)?;
+        self.pool.set_ex_raw(&key, &serialized, self.ttl_seconds).await
     }
 }
 
 #[async_trait]
 impl RedisPoolTrait for RedisPool {
-    async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, key: &'a str) -> Result<Option<T>> {
-        self.get_value(key).await
+    async fn get_value_raw(&self, key: &str) -> Result<Option<String>> {
+        let mut conn = self.pool.get().await?;
+        let result: Option<String> = conn.get(key).await.map_err(Error::from)?;
+        Ok(result)
     }
 
-    async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, key: &'a str, value: &'a T, expiry_seconds: u64) -> Result<()> {
-        self.set_ex(key, value, expiry_seconds).await
+    async fn set_ex_raw(&self, key: &str, value: &str, expiry_seconds: u64) -> Result<()> {
+        let mut conn = self.pool.get().await?;
+        conn.set_ex(key, value, expiry_seconds.try_into().unwrap()).await.map_err(Error::from)
     }
 
-    async fn del<'a>(&'a self, key: &'a str) -> Result<()> {
+    async fn del(&self, key: &str) -> Result<()> {
         self.del(key).await
     }
 }
@@ -433,16 +471,16 @@ pub mod tests {
 
     #[async_trait]
     impl RedisPoolTrait for MockRedisPool {
-        async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, key: &'a str) -> Result<Option<T>> {
-            self.get_value(key).await
+        async fn get_value_raw(&self, key: &str) -> Result<Option<String>> {
+            self.get_result.lock().await.clone()
         }
 
-        async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, key: &'a str, value: &'a T, expiry_seconds: u64) -> Result<()> {
-            self.set_ex(key, value, expiry_seconds).await
+        async fn set_ex_raw(&self, key: &str, value: &str, expiry_seconds: u64) -> Result<()> {
+            self.set_ex_result.lock().await.clone()
         }
 
-        async fn del<'a>(&'a self, key: &'a str) -> Result<()> {
-            self.del(key).await
+        async fn del(&self, key: &str) -> Result<()> {
+            self.del_result.lock().await.clone()
         }
     }
 

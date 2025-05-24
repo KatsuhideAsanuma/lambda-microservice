@@ -103,7 +103,7 @@ pub struct RuntimeManager<D: DbPoolTrait> {
     #[allow(dead_code)]
     wasm_engine: Engine,
     openfaas_client: Option<OpenFaaSClient>,
-    redis_client: Option<crate::cache::RedisClient>,
+    redis_client: Option<crate::cache::RedisClient<crate::cache::RedisPool>>,
     kubernetes_client: Option<Box<dyn KubernetesClientTrait>>,
     protocol_factory: Arc<ProtocolFactory>,
 }
@@ -153,7 +153,7 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
         ));
         
         let redis_client = if let Some(redis_url) = &config.redis_url {
-            match crate::cache::RedisClient::new(redis_url).await {
+            match crate::cache::RedisClient::<crate::cache::RedisPool>::new(redis_url).await {
                 Ok(client) => {
                     info!("Connected to Redis at {}", redis_url);
                     Some(client)

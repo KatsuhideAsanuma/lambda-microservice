@@ -125,15 +125,15 @@ impl MockRedisPool {
 
 #[async_trait::async_trait]
 impl crate::cache::RedisPoolTrait for MockRedisPool {
-    async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, key: &'a str) -> Result<Option<T>> {
-        self.get_value(key).await
+    async fn get_value_raw(&self, _key: &str) -> Result<Option<String>> {
+        self.get_result.lock().await.clone()
     }
 
-    async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, key: &'a str, value: &'a T, expiry_seconds: u64) -> Result<()> {
-        self.set_ex(key, value, expiry_seconds).await
+    async fn set_ex_raw(&self, _key: &str, _value: &str, _expiry_seconds: u64) -> Result<()> {
+        self.set_ex_result.lock().await.clone()
     }
 
-    async fn del<'a>(&'a self, key: &'a str) -> Result<()> {
-        self.del(key).await
+    async fn del(&self, _key: &str) -> Result<()> {
+        self.del_result.lock().await.clone()
     }
 }

@@ -172,10 +172,11 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
             self.session_expiry_seconds,
         );
 
+        let serialized = serde_json::to_string(&session)?;
         self.redis_pool
-            .set_ex(
+            .set_ex_raw(
                 &format!("session:{}", session.request_id),
-                &session,
+                &serialized,
                 self.session_expiry_seconds,
             )
             .await?;
@@ -209,7 +210,9 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
 
     async fn get_session<'a>(&'a self, request_id: &'a str) -> Result<Option<Session>> {
         let redis_key = format!("session:{}", request_id);
-        if let Some(session) = self.redis_pool.get_value::<Session>(&redis_key).await? {
+        let raw = self.redis_pool.get_value_raw(&redis_key).await?;
+        if let Some(raw_session) = raw {
+            let session: Session = serde_json::from_str(&raw_session)?;
             if session.is_expired() {
                 self.expire_session(request_id).await?;
                 return Ok(None);
@@ -263,10 +266,11 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
                 return Ok(None);
             }
 
+            let serialized = serde_json::to_string(&session)?;
             self.redis_pool
-                .set_ex(
+                .set_ex_raw(
                     &redis_key,
-                    &session,
+                    &serialized,
                     self.session_expiry_seconds,
                 )
                 .await?;
@@ -278,10 +282,11 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
     }
 
     async fn update_session<'a>(&'a self, session: &'a Session) -> Result<()> {
+        let serialized = serde_json::to_string(&session)?;
         self.redis_pool
-            .set_ex(
+            .set_ex_raw(
                 &format!("session:{}", session.request_id),
-                session,
+                &serialized,
                 self.session_expiry_seconds,
             )
             .await?;
@@ -496,19 +501,19 @@ mod tests {
 
 #[async_trait]
 impl RedisPoolTrait for MockRedisPool {
-    async fn get_value<'a, T: serde::de::DeserializeOwned + Send + Sync>(&'a self, _key: &'a str) -> Result<Option<T>> {
+    async fn get_value_raw(&self, _key: &str) -> Result<Option<String>> {
         let result = self.get_result.lock().await.clone()?;
         match result {
-            Some(session) => Ok(Some(serde_json::from_value(serde_json::to_value(session).unwrap()).unwrap())),
+            Some(session) => Ok(Some(serde_json::to_string(&session)?)),
             None => Ok(None),
         }
     }
 
-    async fn set_ex<'a, T: serde::Serialize + Send + Sync>(&'a self, _key: &'a str, _value: &'a T, _expiry_seconds: u64) -> Result<()> {
+    async fn set_ex_raw(&self, _key: &str, _value: &str, _expiry_seconds: u64) -> Result<()> {
         self.set_ex_result.lock().await.clone()
     }
 
-    async fn del<'a>(&'a self, _key: &'a str) -> Result<()> {
+    async fn del(&self, _key: &str) -> Result<()> {
         self.del_result.lock().await.clone()
     }
 }

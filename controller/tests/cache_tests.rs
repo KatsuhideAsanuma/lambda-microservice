@@ -1,6 +1,7 @@
 use lambda_microservice_controller::{
     cache::RedisClient,
-    error::Error,
+    error::Result,
+    mocks::MockRedisPool,
     session::{Session, SessionStatus},
 };
 use serde::{Serialize, Deserialize};
@@ -26,13 +27,9 @@ async fn test_redis_client_new() {
 
 #[tokio::test]
 async fn test_redis_client_with_ttl() {
-    use lambda_microservice_controller::cache::tests::MockRedisPool;
-    
     let pool = MockRedisPool::new();
-    let client = RedisClient {
-        pool,
-        ttl_seconds: 3600,
-    };
+    
+    let client = RedisClient::new_with_pool(pool, 3600);
     
     let client_with_ttl = client.with_ttl(600);
     assert!(client_with_ttl.get_wasm_module("test").await.is_ok());
@@ -42,16 +39,11 @@ async fn test_redis_client_with_ttl() {
 async fn test_cache_wasm_module() {
     let test_wasm = vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]; // Valid WebAssembly header
     
-    use lambda_microservice_controller::cache::tests::MockRedisPool;
-    
     let pool = MockRedisPool::new()
         .with_set_ex_result(Ok(()))
         .with_get_result(Ok(Some(serde_json::to_string(&test_wasm).unwrap())));
     
-    let client = RedisClient {
-        pool,
-        ttl_seconds: 3600,
-    };
+    let client = RedisClient::new_with_pool(pool, 3600);
     
     let result = client.cache_wasm_module("test_key", &test_wasm).await;
     assert!(result.is_ok());
@@ -65,8 +57,6 @@ async fn test_cache_wasm_module() {
 
 #[tokio::test]
 async fn test_cache_session() {
-    use lambda_microservice_controller::session::SessionStatus;
-    
     let session = Session {
         request_id: "test-request".to_string(),
         language_title: "nodejs-calculator".to_string(),
@@ -86,17 +76,12 @@ async fn test_cache_session() {
         metadata: None,
     };
     
-    use lambda_microservice_controller::cache::tests::MockRedisPool;
-    
     let pool = MockRedisPool::new()
         .with_set_ex_result(Ok(()));
     
-    let client = RedisClient {
-        pool,
-        ttl_seconds: 3600,
-    };
+    let client = RedisClient::new_with_pool(pool, 3600);
     
     let key = format!("session:{}", session.request_id);
-    let result = client.pool.set_ex(&key, &session, client.ttl_seconds).await;
+    let result = client.cache_session(&session).await;
     assert!(result.is_ok());
 }
