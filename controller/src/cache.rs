@@ -44,16 +44,6 @@ impl<P: RedisPoolTrait + Clone> RedisClient<P> {
             ttl_seconds,
         }
     }
-}
-
-impl RedisClient<RedisPool> {
-    pub async fn new(redis_url: &str) -> Result<Self> {
-        let pool = RedisPool::new(redis_url)?;
-        Ok(Self {
-            pool,
-            ttl_seconds: 3600, // Default to 1 hour TTL
-        })
-    }
     
     pub fn with_ttl(mut self, ttl_seconds: u64) -> Self {
         self.ttl_seconds = ttl_seconds;
@@ -77,6 +67,16 @@ impl RedisClient<RedisPool> {
         let key = format!("session:{}", session.request_id);
         let serialized = serde_json::to_string(&session)?;
         self.pool.set_ex_raw(&key, &serialized, self.ttl_seconds).await
+    }
+}
+
+impl RedisClient<RedisPool> {
+    pub async fn new(redis_url: &str) -> Result<Self> {
+        let pool = RedisPool::new(redis_url)?;
+        Ok(Self {
+            pool,
+            ttl_seconds: 3600, // Default to 1 hour TTL
+        })
     }
 }
 

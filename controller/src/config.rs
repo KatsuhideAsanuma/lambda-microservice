@@ -209,7 +209,6 @@ mod tests {
     #[test]
     fn test_config_from_env_with_custom_values() {
         clear_env_vars();
-        env::set_var("PORT", "8080");
         setup_env_vars();
 
         env::set_var("HOST", "127.0.0.1");
@@ -219,6 +218,8 @@ mod tests {
         env::set_var("MAX_SCRIPT_SIZE", "1048576");
         env::set_var("WASM_COMPILE_TIMEOUT_SECONDS", "60");
 
+        assert!(env::var("DATABASE_URL").is_ok(), "DATABASE_URL must be set for this test");
+        
         let config = Config::from_env().expect("Failed to load config");
 
         assert_eq!(config.host, "127.0.0.1");
@@ -240,7 +241,14 @@ mod tests {
         assert!(result.is_err());
         if let Err(err) = result {
             assert!(matches!(err, Error::Config(_)));
-            assert!(err.to_string().contains("Invalid PORT"));
+            let expected_error = "Invalid PORT";
+            let error_message = err.to_string();
+            assert!(
+                error_message.contains(expected_error),
+                "Expected error message to contain '{}', but got '{}'",
+                expected_error,
+                error_message
+            );
         }
     }
 

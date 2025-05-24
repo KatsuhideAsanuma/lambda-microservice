@@ -16,13 +16,10 @@ struct TestData {
 
 #[tokio::test]
 async fn test_redis_client_new() {
-    let result = RedisClient::new("redis://localhost:6379").await;
-    if result.is_err() {
-        assert!(true);
-    } else {
-        let client = result.unwrap();
-        assert!(client.with_ttl(600).get_wasm_module("test").await.is_ok());
-    }
+    let pool = MockRedisPool::new();
+    let client = RedisClient::new_with_pool(pool, 3600);
+    
+    assert!(client.with_ttl(600).get_wasm_module("test").await.is_ok());
 }
 
 #[tokio::test]
