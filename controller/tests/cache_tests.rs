@@ -62,23 +62,25 @@ async fn test_cache_wasm_module() {
 
 #[tokio::test]
 async fn test_cache_session() {
+    use lambda_microservice_controller::session::SessionStatus;
+    
     let session = Session {
-        id: Uuid::new_v4(),
         request_id: "test-request".to_string(),
-        function_id: Uuid::new_v4(),
-        language: "nodejs".to_string(),
-        status: "pending".to_string(),
-        script_content: Some("console.log('hello');".to_string()),
-        compiled_artifact: None,
-        compile_error: None,
+        language_title: "nodejs-calculator".to_string(),
+        user_id: Some("test-user".to_string()),
         created_at: Utc::now(),
-        updated_at: Utc::now(),
-        context: serde_json::json!({}),
-        execution_count: 0,
-        last_execution_time: None,
-        last_execution_result: None,
-        last_execution_error: None,
         expires_at: Utc::now() + chrono::Duration::days(1),
+        last_executed_at: None,
+        execution_count: 0,
+        status: SessionStatus::Active,
+        context: serde_json::json!({}),
+        script_content: Some("console.log('hello');".to_string()),
+        script_hash: Some("test-hash".to_string()),
+        compiled_artifact: None,
+        compile_options: None,
+        compile_status: Some("pending".to_string()),
+        compile_error: None,
+        metadata: None,
     };
     
     let pool = MockRedisPool::new()

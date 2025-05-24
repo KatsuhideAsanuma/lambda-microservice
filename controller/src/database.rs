@@ -96,7 +96,7 @@ impl PostgresPool {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-integration"))]
 pub mod tests {
     use super::*;
     use std::sync::Arc;
@@ -310,9 +310,10 @@ pub mod tests {
     }
 }
 
-#[cfg(test)]
-#[cfg(feature = "test-integration")]
-impl tests::test_utils {}
+#[cfg(all(test, feature = "test-integration"))]
+pub mod test_utils {
+    pub use super::tests::MockPostgresPool;
+}
 
 #[cfg(feature = "test-integration")]
-pub use self::tests::test_utils::*;
+pub use self::test_utils::*;

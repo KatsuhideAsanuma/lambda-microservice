@@ -9,23 +9,25 @@ use serde_json::json;
 use uuid::Uuid;
 
 fn create_test_session() -> Session {
+    use lambda_microservice_controller::session::SessionStatus;
+    
     Session {
-        id: Uuid::new_v4(),
         request_id: Uuid::new_v4().to_string(),
-        function_id: Uuid::new_v4(),
-        language: "nodejs".to_string(),
-        status: "pending".to_string(),
-        script_content: Some("console.log('Hello, World!');".to_string()),
-        compiled_artifact: None,
-        compile_error: None,
+        language_title: "nodejs-calculator".to_string(),
+        user_id: Some("test-user".to_string()),
         created_at: Utc::now(),
-        updated_at: Utc::now(),
-        context: json!({"user": "test_user"}),
-        execution_count: 0,
-        last_execution_time: None,
-        last_execution_result: None,
-        last_execution_error: None,
         expires_at: Utc::now() + chrono::Duration::days(1),
+        last_executed_at: None,
+        execution_count: 0,
+        status: SessionStatus::Active,
+        context: json!({"user": "test_user"}),
+        script_content: Some("console.log('Hello, World!');".to_string()),
+        script_hash: Some("test-hash".to_string()),
+        compiled_artifact: None,
+        compile_options: None,
+        compile_status: Some("pending".to_string()),
+        compile_error: None,
+        metadata: None,
     }
 }
 

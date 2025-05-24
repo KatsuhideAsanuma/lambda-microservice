@@ -118,7 +118,7 @@ impl OpenFaaSClient {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-integration"))]
 pub mod tests {
     #[cfg(feature = "test-integration")]
     pub mod test_utils {
