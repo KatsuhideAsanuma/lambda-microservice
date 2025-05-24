@@ -1,8 +1,71 @@
 use lambda_microservice_controller::{
-    database::{PostgresPool, tests::MockPostgresPool},
+    database::PostgresPool,
     error::Error,
     session::{DbPoolTrait, Session, SessionStatus},
 };
+
+#[derive(Clone)]
+struct MockPostgresPool {
+    execute_result: std::sync::Arc<tokio::sync::Mutex<lambda_microservice_controller::error::Result<u64>>>,
+    query_opt_result: std::sync::Arc<tokio::sync::Mutex<lambda_microservice_controller::error::Result<Option<tokio_postgres::Row>>>>,
+    query_one_result: std::sync::Arc<tokio::sync::Mutex<lambda_microservice_controller::error::Result<tokio_postgres::Row>>>,
+}
+
+impl MockPostgresPool {
+    fn new() -> Self {
+        Self {
+            execute_result: std::sync::Arc::new(tokio::sync::Mutex::new(Ok(1))),
+            query_opt_result: std::sync::Arc::new(tokio::sync::Mutex::new(Ok(None))),
+            query_one_result: std::sync::Arc::new(tokio::sync::Mutex::new(Err(Error::NotFound("No rows found".to_string())))),
+        }
+    }
+
+    fn with_execute_result(mut self, result: lambda_microservice_controller::error::Result<u64>) -> Self {
+        self.execute_result = std::sync::Arc::new(tokio::sync::Mutex::new(result));
+        self
+    }
+
+    fn with_query_opt_result(mut self, result: lambda_microservice_controller::error::Result<Option<tokio_postgres::Row>>) -> Self {
+        self.query_opt_result = std::sync::Arc::new(tokio::sync::Mutex::new(result));
+        self
+    }
+
+    fn with_query_one_result(mut self, result: lambda_microservice_controller::error::Result<tokio_postgres::Row>) -> Self {
+        self.query_one_result = std::sync::Arc::new(tokio::sync::Mutex::new(result));
+        self
+    }
+
+    async fn execute(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<u64> {
+        self.execute_result.lock().await.clone()
+    }
+
+    async fn query(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<Vec<tokio_postgres::Row>> {
+        Ok(Vec::new())
+    }
+
+    async fn query_one(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<tokio_postgres::Row> {
+        self.query_one_result.lock().await.clone()
+    }
+
+    async fn query_opt(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<Option<tokio_postgres::Row>> {
+        self.query_opt_result.lock().await.clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl DbPoolTrait for MockPostgresPool {
+    async fn execute<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<u64> {
+        self.execute(query, params).await
+    }
+    
+    async fn query_opt<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<Option<tokio_postgres::Row>> {
+        self.query_opt(query, params).await
+    }
+    
+    async fn query_one<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> lambda_microservice_controller::error::Result<tokio_postgres::Row> {
+        self.query_one(query, params).await
+    }
+}
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -38,7 +101,7 @@ async fn test_execute_with_params() {
     let pool = MockPostgresPool::new();
     
     let param1 = "value1";
-    let param2 = 42;
+    let param2 = "42";
     
     let result = pool.execute("INSERT INTO test VALUES ($1, $2)", &[&param1, &param2]).await;
     assert!(result.is_ok());
@@ -99,12 +162,14 @@ async fn test_session_storage() {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     "#;
     
+    let user_id = session.user_id.clone().unwrap_or_default();
+    
     let result = pool.execute(
         query,
         &[
             &session.request_id,
             &session.language_title,
-            &session.user_id,
+            &user_id,
             &session.created_at,
             &session.expires_at,
             &session.status.as_str(),
