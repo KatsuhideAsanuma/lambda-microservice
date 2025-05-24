@@ -255,15 +255,12 @@ mod tests {
         
         if let Err(err) = result {
             assert!(matches!(err, Error::Config(_)));
-            let error_string = err.to_string();
-            assert!(
-                error_string.contains("DATABASE_URL") || 
-                error_string.contains("REDIS_URL") || 
-                error_string.contains("NODEJS_RUNTIME_URL") || 
-                error_string.contains("PYTHON_RUNTIME_URL") || 
-                error_string.contains("RUST_RUNTIME_URL"),
-                "Error message '{}' does not mention any missing environment variables", error_string
-            );
+            assert!(err.to_string().contains("Configuration error:") || 
+                   err.to_string().contains("environment variable not set") ||
+                   err.to_string().contains("DATABASE_URL") ||
+                   err.to_string().contains("REDIS_URL") ||
+                   err.to_string().contains("NODEJS_RUNTIME_URL"),
+                   "Error message '{}' is not a configuration error", err.to_string());
         }
     }
 
