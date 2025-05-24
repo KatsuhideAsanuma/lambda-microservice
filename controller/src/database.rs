@@ -98,9 +98,6 @@ impl PostgresPool {
 
 #[cfg(test)]
 pub mod tests {
-    
-#[cfg(feature = "test-integration")]
-pub mod test_utils {
     use super::*;
     use std::sync::Arc;
     use tokio::sync::Mutex;
