@@ -43,4 +43,12 @@ else
     echo "Step 4: Skipping end-to-end tests (script not found)"
 fi
 
+echo "Step 5: Measuring test coverage..."
+./scripts/measure_coverage.sh
+if [ $? -ne 0 ]; then
+    echo "❌ Test coverage is below target"
+    exit 1
+fi
+echo "✅ Test coverage meets or exceeds target"
+
 echo "🎉 All tests passed successfully!"
