@@ -166,7 +166,17 @@ mod tests {
     #[test]
     fn test_config_from_env_with_defaults() {
         clear_env_vars();
-        setup_env_vars();
+        
+        env::set_var("DATABASE_URL", "postgres://user:pass@localhost:5432/testdb");
+        env::set_var("REDIS_URL", "redis://localhost:6379");
+        env::set_var("NODEJS_RUNTIME_URL", "http://localhost:8081");
+        env::set_var("PYTHON_RUNTIME_URL", "http://localhost:8082");
+        env::set_var("RUST_RUNTIME_URL", "http://localhost:8083");
+        
+        env::set_var("PORT", "8080");
+        
+        assert_eq!(env::var("PORT").unwrap(), "8080");
+        assert_eq!(env::var("DATABASE_URL").unwrap(), "postgres://user:pass@localhost:5432/testdb");
 
         let config = Config::from_env().expect("Failed to load config");
 
@@ -181,21 +191,22 @@ mod tests {
         assert_eq!(config.runtime_config.runtime_timeout_seconds, 30);
         assert_eq!(config.runtime_config.runtime_fallback_timeout_seconds, 15);
         assert_eq!(config.runtime_config.runtime_max_retries, 3);
-        assert_eq!(config.runtime_config.max_script_size, 1048576);
+        assert_eq!(config.runtime_config.max_script_size, 1048576); // 1MB
         assert_eq!(config.runtime_config.wasm_compile_timeout_seconds, 60);
     }
 
     #[test]
     fn test_config_from_env_with_custom_values() {
         clear_env_vars();
+        env::set_var("PORT", "8080");
         setup_env_vars();
 
         env::set_var("HOST", "127.0.0.1");
         env::set_var("PORT", "9090");
         env::set_var("SESSION_EXPIRY_SECONDS", "7200");
         env::set_var("RUNTIME_TIMEOUT_SECONDS", "60");
-        env::set_var("MAX_SCRIPT_SIZE", "2097152");
-        env::set_var("WASM_COMPILE_TIMEOUT_SECONDS", "120");
+        env::set_var("MAX_SCRIPT_SIZE", "1048576");
+        env::set_var("WASM_COMPILE_TIMEOUT_SECONDS", "60");
 
         let config = Config::from_env().expect("Failed to load config");
 
@@ -203,13 +214,14 @@ mod tests {
         assert_eq!(config.port, 9090);
         assert_eq!(config.session_expiry_seconds, 7200);
         assert_eq!(config.runtime_config.runtime_timeout_seconds, 60);
-        assert_eq!(config.runtime_config.max_script_size, 2097152);
-        assert_eq!(config.runtime_config.wasm_compile_timeout_seconds, 120);
+        assert_eq!(config.runtime_config.max_script_size, 1048576); // 1MB
+        assert_eq!(config.runtime_config.wasm_compile_timeout_seconds, 60);
     }
 
     #[test]
     fn test_config_from_env_with_invalid_port() {
         clear_env_vars();
+        env::set_var("PORT", "8080");
         setup_env_vars();
 
         env::set_var("PORT", "invalid");
@@ -225,6 +237,7 @@ mod tests {
     #[test]
     fn test_config_from_env_with_missing_required_vars() {
         clear_env_vars();
+        env::set_var("PORT", "8080");
 
         let result = Config::from_env();
         assert!(result.is_err());

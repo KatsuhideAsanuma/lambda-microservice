@@ -98,7 +98,7 @@ impl KubernetesClient {
         let mut runtime_services = HashMap::new();
 
         for service in services.items {
-            if let Some(metadata) = service.metadata {
+            let metadata = service.metadata;
                 if let Some(labels) = metadata.labels {
                     if let Some(runtime_type) = labels.get("lambda.microservice/runtime") {
                         let service_name = metadata.name.unwrap_or_default();
@@ -110,12 +110,11 @@ impl KubernetesClient {
                             _ => continue,
                         };
                         
-                        runtime_services.insert(service_name, runtime);
+                        runtime_services.insert(service_name.clone(), runtime);
                         info!("Discovered runtime service: {} of type {:?}", service_name, runtime);
                     }
                 }
             }
-        }
 
         {
             let mut cache = self.service_cache.write().await;
@@ -273,9 +272,10 @@ impl KubernetesClientTrait for MockKubernetesClient {
 mod tests {
     use super::*;
     
+    #[cfg(feature = "mock-kubernetes")]
     #[tokio::test]
     async fn test_kubernetes_client() {
-        let client = KubernetesClient::new("default", 3600).await.unwrap();
+        let client = MockKubernetesClient::new();
         
         let services = client.discover_runtime_services().await.unwrap();
         assert!(services.len() >= 3);
