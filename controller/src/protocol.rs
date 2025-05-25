@@ -59,6 +59,9 @@ impl ProtocolAdapter for JsonProtocolAdapter {
 pub mod grpc;
 use grpc::GrpcProtocolAdapter;
 
+#[cfg(test)]
+pub mod tests;
+
 pub struct ProtocolFactory {
     json_adapter: Arc<JsonProtocolAdapter>,
     grpc_adapter: Arc<GrpcProtocolAdapter>,
@@ -81,7 +84,7 @@ impl ProtocolFactory {
 }
 
 #[cfg(test)]
-mod tests {
+mod protocol_tests {
     use super::*;
     
     #[test]
