@@ -116,6 +116,23 @@ impl OpenFaaSClient {
             script_content: session.script_content.clone(),
         }
     }
+    
+    pub fn parse_response(&self, response_bytes: &[u8]) -> Result<RuntimeExecuteResponse> {
+        let openfaas_response: OpenFaaSResponse = serde_json::from_slice(response_bytes).map_err(|e| {
+            error!("Error parsing OpenFaaS response: {}", e);
+            Error::Runtime(format!("Failed to parse OpenFaaS response: {}", e))
+        })?;
+        
+        if !openfaas_response.result.is_object() {
+            return Err(Error::Runtime("Invalid response format: result is not an object".to_string()));
+        }
+        
+        Ok(RuntimeExecuteResponse {
+            result: openfaas_response.result,
+            execution_time_ms: openfaas_response.execution_time_ms,
+            memory_usage_bytes: openfaas_response.memory_usage_bytes,
+        })
+    }
 }
 
 #[cfg(any(test, feature = "test-integration"))]
