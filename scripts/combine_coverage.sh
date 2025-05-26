@@ -7,7 +7,7 @@ echo "🔍 全モジュールの統合テストカバレッジを測定中..."
 
 mkdir -p coverage-report/combined
 
-MODULES=("function" "cache" "database" "openfaas" "main")
+MODULES=("function" "cache" "database" "openfaas" "main" "kubernetes")
 
 for MODULE in "${MODULES[@]}"; do
   echo "テスト実行: ${MODULE}"
@@ -15,7 +15,7 @@ for MODULE in "${MODULES[@]}"; do
 done
 
 cd controller
-RUST_BACKTRACE=1 cargo tarpaulin --features test-integration --lib --tests --out Html --output-dir ../coverage-report/combined
+RUST_BACKTRACE=1 cargo tarpaulin --features "test-integration mock-kubernetes" --lib --tests --out Html --output-dir ../coverage-report/combined
 
 echo "✅ 統合テストカバレッジ測定完了"
 echo "レポートは coverage-report/combined/tarpaulin-report.html に保存されました"

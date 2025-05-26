@@ -3,6 +3,7 @@ use actix_web::{middleware, web, App, HttpServer};
 use dotenv::dotenv;
 use lambda_microservice_controller::{
     api, config::Config, database::PostgresPool, function::FunctionManager, session::SessionManager,
+    cache::RedisPool, logger::DatabaseLogger, runtime::RuntimeManager
 };
 use std::sync::Arc;
 use tracing::{info, Level};
@@ -26,7 +27,7 @@ async fn main() -> std::io::Result<()> {
         .expect("Failed to create database connection pool");
     info!("Database connection pool initialized");
 
-    let redis_pool = lambda_microservice_controller::cache::RedisPool::new(&config.redis_url)
+    let redis_pool = RedisPool::new(&config.redis_url)
         .expect("Failed to create Redis connection pool");
     info!("Redis connection pool initialized");
 
@@ -43,12 +44,12 @@ async fn main() -> std::io::Result<()> {
     info!("Function manager initialized");
 
     let db_logger = Arc::new(
-        lambda_microservice_controller::logger::DatabaseLogger::new(postgres_pool.clone().into(), true)
+        DatabaseLogger::new(postgres_pool.clone().into(), true)
     );
     info!("Database logger initialized");
 
     let runtime_manager = Arc::new(
-        lambda_microservice_controller::runtime::RuntimeManager::new(
+        RuntimeManager::new(
             &config.runtime_config,
             postgres_pool.clone(),
         )

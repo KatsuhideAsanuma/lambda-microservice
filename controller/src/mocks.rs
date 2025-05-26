@@ -91,6 +91,10 @@ impl MockPostgresPool {
             query_one_result: Arc::new(Mutex::new(Err(Error::NotFound("No rows found".to_string())))),
         }
     }
+    
+    pub fn is_valid(&self) -> bool {
+        true
+    }
 
     pub fn with_execute_result(mut self, result: Result<u64>) -> Self {
         self.execute_result = Arc::new(Mutex::new(result));
@@ -159,6 +163,10 @@ impl MockRedisPool {
             set_nx_ex_result: Arc::new(Mutex::new(Ok(true))),
             expire_result: Arc::new(Mutex::new(Ok(true))),
         }
+    }
+    
+    pub fn is_valid(&self) -> bool {
+        true
     }
 
     pub fn with_get_result(mut self, result: Result<Option<String>>) -> Self {
