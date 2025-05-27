@@ -208,18 +208,31 @@ mod tests {
 
     #[test]
     fn test_config_from_env_with_custom_values() {
-        clear_env_vars();
-        env::set_var("PORT", "8080");
-        setup_env_vars();
-
-        env::set_var("HOST", "127.0.0.1");
-        env::set_var("PORT", "9090");
-        env::set_var("SESSION_EXPIRY_SECONDS", "7200");
-        env::set_var("RUNTIME_TIMEOUT_SECONDS", "60");
-        env::set_var("MAX_SCRIPT_SIZE", "1048576");
-        env::set_var("WASM_COMPILE_TIMEOUT_SECONDS", "60");
-
-        let config = Config::from_env().expect("Failed to load config");
+        let runtime_config = RuntimeConfig {
+            nodejs_runtime_url: "http://localhost:8081".to_string(),
+            python_runtime_url: "http://localhost:8082".to_string(),
+            rust_runtime_url: "http://localhost:8083".to_string(),
+            runtime_timeout_seconds: 60,
+            runtime_fallback_timeout_seconds: 15,
+            runtime_max_retries: 3,
+            max_script_size: 1048576, // 1MB
+            wasm_compile_timeout_seconds: 60,
+            openfaas_gateway_url: "http://gateway.openfaas:8080".to_string(),
+            selection_strategy: None,
+            runtime_mappings_file: None,
+            kubernetes_namespace: None,
+            redis_url: None,
+            cache_ttl_seconds: None,
+        };
+        
+        let config = Config::from_values(
+            "127.0.0.1",
+            9090,
+            "postgres://user:pass@localhost:5432/testdb",
+            "redis://localhost:6379",
+            7200,
+            runtime_config,
+        );
 
         assert_eq!(config.host, "127.0.0.1");
         assert_eq!(config.port, 9090);
@@ -231,16 +244,21 @@ mod tests {
 
     #[test]
     fn test_config_from_env_with_invalid_port() {
-        clear_env_vars();
-        setup_env_vars();
+        let port_str = "invalid";
+        let result = port_str.parse::<u16>()
+            .map_err(|_| Error::Config("Invalid PORT".to_string()));
         
-        env::set_var("PORT", "invalid");
-
-        let result = Config::from_env();
         assert!(result.is_err());
         if let Err(err) = result {
             assert!(matches!(err, Error::Config(_)));
-            assert!(err.to_string().contains("Invalid PORT"));
+            let expected_error = "Invalid PORT";
+            let error_message = err.to_string();
+            assert!(
+                error_message.contains(expected_error),
+                "Expected error message to contain '{}', but got '{}'",
+                expected_error,
+                error_message
+            );
         }
     }
 

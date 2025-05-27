@@ -79,5 +79,6 @@ actix-test = "0.1.1"
 [features]
 default = []
 test-integration = []
-test-isolated = []
 mock-kubernetes = []
+test-isolated = []
+test = []

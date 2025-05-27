@@ -18,8 +18,8 @@ use kube::{
 use k8s_openapi::api::core::v1::Service;
 
 pub struct ServiceCache {
-    services: HashMap<String, RuntimeType>,
-    last_updated: Instant,
+    pub services: HashMap<String, RuntimeType>,
+    pub last_updated: Instant,
 }
 
 impl ServiceCache {
@@ -34,6 +34,10 @@ impl ServiceCache {
         let now = Instant::now();
         let age = now.duration_since(self.last_updated);
         age.as_secs() > ttl_seconds
+    }
+    
+    pub fn get_services(&self) -> &HashMap<String, RuntimeType> {
+        &self.services
     }
 }
 
