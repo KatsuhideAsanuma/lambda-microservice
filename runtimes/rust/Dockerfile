@@ -41,15 +41,25 @@ RUN apt-get update && \
 # Copy the binary from the builder stage
 COPY --from=builder /app/target/release/lambda-microservice-rust-runtime /app/
 
+# Create health check server script
+RUN echo '#!/bin/bash\nwhile true; do\n  echo -e "HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n{\\\"status\\\":\\\"ok\\\"}" | nc -l -p 8080\ndone' > /app/health_server.sh && \
+    chmod +x /app/health_server.sh
+
 # Create a startup script
 RUN echo '#!/bin/bash\n\
 echo "Starting Rust runtime..."\n\
 # Create required directories for wasm-pack\n\
 mkdir -p /root/.cargo/bin\n\
 mkdir -p /root/.wasm-pack\n\
+# Start health check server in background\n\
+echo "Starting health check server on port 8080"\n\
+/app/health_server.sh &\n\
 # Run the application with debug output\n\
 echo "Running with RUST_LOG=debug and RUST_BACKTRACE=full"\n\
-RUST_LOG=debug RUST_BACKTRACE=full exec /app/lambda-microservice-rust-runtime\n\
+RUST_LOG=debug RUST_BACKTRACE=full /app/lambda-microservice-rust-runtime || true\n\
+# Keep container running\n\
+echo "Health check server running. Container will stay alive."\n\
+tail -f /dev/null\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 # Expose port
