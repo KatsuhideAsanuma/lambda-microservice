@@ -373,8 +373,11 @@ async fn get_function_list(
     function_manager: Data<Arc<dyn FunctionManagerTrait>>,
     query: web::Query<FunctionQuery>,
 ) -> HttpResponse {
+    tracing::info!("get_function_list called with query: {:?}", query);
+    
     match function_manager.get_functions(&query).await {
         Ok(functions) => {
+            tracing::info!("Successfully retrieved {} functions", functions.len());
             let function_infos: Vec<FunctionInfo> = functions
                 .into_iter()
                 .map(|f| FunctionInfo {
@@ -395,6 +398,7 @@ async fn get_function_list(
             })
         }
         Err(err) => {
+            tracing::error!("Failed to get functions: {}", err);
             HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": format!("Failed to get functions: {}", err)
             }))
@@ -481,6 +485,17 @@ async fn test_endpoint() -> HttpResponse {
     }))
 }
 
+#[get("/test-function-manager")]
+async fn test_function_manager(
+    function_manager: Data<Arc<dyn FunctionManagerTrait>>,
+) -> HttpResponse {
+    tracing::info!("test_function_manager called");
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "ok",
+        "message": "Function manager is accessible"
+    }))
+}
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(initialize)
         .service(execute)
@@ -488,7 +503,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_function_list)
         .service(get_function_detail)
         .service(health_check)
-        .service(test_endpoint);
+        .service(test_endpoint)
+        .service(test_function_manager);
 }
 
 use async_trait::async_trait;

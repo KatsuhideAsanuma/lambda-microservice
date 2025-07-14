@@ -127,8 +127,9 @@ impl Session {
 }
 
 #[async_trait]
-pub trait DbPoolTrait: Send + Sync + 'static {
+pub trait DbPoolTrait {
     async fn execute<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64>;
+    async fn query<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>>;
     async fn query_opt<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<tokio_postgres::Row>>;
     async fn query_one<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row>;
 }

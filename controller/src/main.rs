@@ -35,17 +35,17 @@ async fn main() -> std::io::Result<()> {
         postgres_pool.clone(),
         redis_pool.clone(),
         config.session_expiry_seconds,
-    ));
+    )) as Arc<dyn api::SessionManagerTrait>;
     info!("Session manager initialized");
 
     let function_manager = Arc::new(
         FunctionManager::new(postgres_pool.clone())
-    );
+    ) as Arc<dyn api::FunctionManagerTrait>;
     info!("Function manager initialized");
 
     let db_logger = Arc::new(
         DatabaseLogger::new(postgres_pool.clone().into(), true)
-    );
+    ) as Arc<dyn crate::logger::DatabaseLoggerTrait>;
     info!("Database logger initialized");
 
     let runtime_manager = Arc::new(
@@ -55,7 +55,7 @@ async fn main() -> std::io::Result<()> {
         )
         .await
         .expect("Failed to initialize runtime manager"),
-    );
+    ) as Arc<dyn api::RuntimeManagerTrait>;
     info!("Runtime manager initialized");
 
     info!("Starting server at {}:{}", config.host, config.port);
@@ -75,10 +75,10 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors)
             .app_data(web::Data::new(postgres_pool.clone()))
             .app_data(web::Data::new(redis_pool.clone()))
-            .app_data(web::Data::new(session_manager.clone()))
-            .app_data(web::Data::new(function_manager.clone()))
-            .app_data(web::Data::new(db_logger.clone()))
-            .app_data(web::Data::new(runtime_manager.clone()))
+            .app_data(web::Data::from(session_manager.clone()))
+            .app_data(web::Data::from(function_manager.clone()))
+            .app_data(web::Data::from(db_logger.clone()))
+            .app_data(web::Data::from(runtime_manager.clone()))
             .app_data(web::Data::new(config.clone()))
             .configure(api::configure)
     })

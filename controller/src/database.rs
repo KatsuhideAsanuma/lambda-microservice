@@ -16,6 +16,10 @@ impl DbPoolTrait for PostgresPool {
         self.execute(query, params).await
     }
     
+    async fn query<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
+        self.query(query, params).await
+    }
+    
     async fn query_opt<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<tokio_postgres::Row>> {
         self.query_opt(query, params).await
     }
@@ -245,6 +249,10 @@ pub mod tests {
     impl DbPoolTrait for MockPostgresPool {
         async fn execute<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
             self.execute(query, params).await
+        }
+        
+        async fn query<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<Row>> {
+            self.query(query, params).await
         }
         
         async fn query_opt<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<Row>> {
