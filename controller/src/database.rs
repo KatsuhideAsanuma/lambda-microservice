@@ -94,6 +94,30 @@ impl PostgresPool {
         let client = self.get().await?;
         client.query_opt(query, params).await.map_err(Error::from)
     }
+
+    // 新規追加: データベースのスキーマ検証
+    pub async fn verify_schema(&self) -> Result<()> {
+        let required_tables = vec![
+            ("meta", "functions"),
+            ("meta", "scripts"),
+            ("meta", "sessions"),  // 新しく追加
+            ("public", "request_logs"),
+            ("public", "error_logs"),
+        ];
+        
+        for (schema, table) in required_tables {
+            let query = "SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2";
+            
+            let result = self.query_opt(query, &[&schema, &table]).await?;
+            if result.is_none() {
+                return Err(Error::Database(format!(
+                    "Required table {}.{} is missing", schema, table
+                )));
+            }
+        }
+        
+        Ok(())
+    }
 }
 
 #[cfg(any(test, feature = "test-integration"))]

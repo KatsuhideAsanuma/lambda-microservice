@@ -32,8 +32,28 @@ pub struct RuntimeConfig {
 }
 
 impl Config {
+    // 新規追加: 設定ファイルから改行文字を除去して読み込む
+    fn read_secret_file(path: &str) -> Result<String, std::io::Error> {
+        std::fs::read_to_string(path)
+            .map(|content| content.trim().to_string()) // 改行文字除去
+    }
+
+    // 新規追加: 設定検証
+    pub fn validate(&self) -> Result<(), String> {
+        // URL形式の検証
+        if !self.database_url.starts_with("postgres://") && !self.database_url.starts_with("postgresql://") {
+            return Err("Invalid database URL format".to_string());
+        }
+        
+        if !self.redis_url.starts_with("redis://") {
+            return Err("Invalid Redis URL format".to_string());
+        }
+        
+        Ok(())
+    }
+
     pub fn from_env() -> Result<Self> {
-        Ok(Self {
+        let config = Self {
             host: env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             port: env::var("PORT")
                 .unwrap_or_else(|_| "8080".to_string())
@@ -42,7 +62,7 @@ impl Config {
             database_url: env::var("DATABASE_URL")
                 .or_else(|_| {
                     env::var("DATABASE_URL_FILE").and_then(|path| {
-                        std::fs::read_to_string(path)
+                        Self::read_secret_file(&path)
                             .map_err(|_| env::VarError::NotPresent)
                     })
                 })
@@ -52,7 +72,7 @@ impl Config {
             redis_url: env::var("REDIS_URL")
                 .or_else(|_| {
                     env::var("REDIS_URL_FILE").and_then(|path| {
-                        std::fs::read_to_string(path)
+                        Self::read_secret_file(&path)
                             .map_err(|_| env::VarError::NotPresent)
                     })
                 })
