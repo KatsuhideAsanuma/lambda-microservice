@@ -55,9 +55,9 @@ tokio-retry = "0.3.0"
 rand = "0.8.5"
 
 # WebAssembly support (for Rust runtime)
-wasmtime = "9.0.3"
-wasmtime-wasi = "9.0.3"
-tempfile = "3.8.0"
+wasmtime = "8.0.1"
+wasmtime-wasi = "8.0.1"
+tempfile = "3.6.0"
 
 # gRPC support
 tonic = "0.9.2"
