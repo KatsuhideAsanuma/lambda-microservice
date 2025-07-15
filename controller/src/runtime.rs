@@ -114,13 +114,17 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             // Some("discovery") => RuntimeSelectionStrategy::DynamicDiscovery, // TEMPORARILY DISABLED
             _ => RuntimeSelectionStrategy::PrefixMatching,
         };
-        
+
         let mut runtime_mappings = Vec::new();
         if let Some(mappings_file) = &config.runtime_mappings_file {
             if let Ok(file_content) = tokio::fs::read_to_string(mappings_file).await {
                 if let Ok(mappings) = serde_json::from_str::<Vec<RuntimeMapping>>(&file_content) {
                     runtime_mappings = mappings;
-                    info!("Loaded {} runtime mappings from {}", runtime_mappings.len(), mappings_file);
+                    info!(
+                        "Loaded {} runtime mappings from {}",
+                        runtime_mappings.len(),
+                        mappings_file
+                    );
                 } else {
                     warn!("Failed to parse runtime mappings from {}", mappings_file);
                 }
@@ -150,13 +154,13 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             &config.openfaas_gateway_url,
             config.runtime_timeout_seconds,
         ));
-        
+
         let redis_client = if let Some(redis_url) = &config.redis_url {
             match crate::cache::RedisClient::<crate::cache::RedisPool>::new(redis_url).await {
                 Ok(client) => {
                     info!("Connected to Redis at {}", redis_url);
                     Some(client)
-                },
+                }
                 Err(e) => {
                     warn!("Failed to connect to Redis at {}: {}", redis_url, e);
                     None
@@ -200,18 +204,18 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             protocol_factory: Arc::new(ProtocolFactory::new()),
         })
     }
-    
+
     pub async fn get_runtime_type(&self, language_title: &str) -> Result<RuntimeType> {
         match self.config.selection_strategy {
             RuntimeSelectionStrategy::PrefixMatching => {
                 RuntimeType::from_language_title(language_title)
-            },
+            }
             RuntimeSelectionStrategy::ConfigurationBased => {
                 if self.config.runtime_mappings.is_empty() {
                     warn!("Configuration-based mapping selected but no mappings defined, falling back to prefix matching");
                     return RuntimeType::from_language_title(language_title);
                 }
-                
+
                 for mapping in &self.config.runtime_mappings {
                     if mapping.is_regex {
                         match regex::Regex::new(&mapping.pattern) {
@@ -219,7 +223,7 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
                                 if re.is_match(language_title) {
                                     return Ok(mapping.runtime_type);
                                 }
-                            },
+                            }
                             Err(e) => {
                                 warn!("Invalid regex pattern '{}': {}", mapping.pattern, e);
                             }
@@ -228,22 +232,22 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
                         return Ok(mapping.runtime_type);
                     }
                 }
-                
+
                 Err(Error::BadRequest(format!(
                     "No configuration mapping found for language title: {}",
                     language_title
                 )))
-            },
+            }
             // DynamicDiscovery temporarily disabled
             // RuntimeSelectionStrategy::DynamicDiscovery => {
             //     if let Some(namespace) = &self.config.kubernetes_namespace {
-            //         info!("Dynamic discovery requested for '{}' in namespace '{}'", 
+            //         info!("Dynamic discovery requested for '{}' in namespace '{}'",
             //               language_title, namespace);
-                    
+
             //         if let Some(kubernetes_client) = &self.kubernetes_client {
             //             match kubernetes_client.get_runtime_type_for_language(language_title).await {
             //                 Ok(runtime_type) => {
-            //                     info!("Found runtime type {:?} for '{}' using Kubernetes discovery", 
+            //                     info!("Found runtime type {:?} for '{}' using Kubernetes discovery",
             //                           runtime_type, language_title);
             //                     return Ok(runtime_type);
             //                 },
@@ -257,7 +261,7 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
             //     } else {
             //         warn!("Dynamic discovery selected but no Kubernetes namespace configured");
             //     }
-                
+
             //     RuntimeType::from_language_title(language_title)
             // }
         }
@@ -274,21 +278,26 @@ impl<D: DbPoolTrait + Send + Sync> RuntimeManagerTrait for RuntimeManager<D> {
         let runtime_type = self.get_runtime_type(&session.language_title).await?;
 
         // All runtimes now use container execution (WebAssembly temporarily disabled)
-        self.execute_in_container(runtime_type, session, params).await
+        self.execute_in_container(runtime_type, session, params)
+            .await
     }
 
     // WebAssembly compilation temporarily disabled
     async fn compile_rust_script<'a>(&'a self, _session: &'a Session) -> Result<Vec<u8>> {
-        Err(Error::Runtime("WebAssembly compilation is temporarily disabled".to_string()))
+        Err(Error::Runtime(
+            "WebAssembly compilation is temporarily disabled".to_string(),
+        ))
     }
-    
+
     // WebAssembly compilation temporarily disabled
     async fn compile_with_wasmtime<'a>(
         &'a self,
         _script_content: &'a str,
-        _memory_limit_bytes: u64
+        _memory_limit_bytes: u64,
     ) -> Result<Vec<u8>> {
-        Err(Error::Runtime("WebAssembly compilation is temporarily disabled".to_string()))
+        Err(Error::Runtime(
+            "WebAssembly compilation is temporarily disabled".to_string(),
+        ))
     }
 
     // WebAssembly execution temporarily disabled
@@ -297,7 +306,9 @@ impl<D: DbPoolTrait + Send + Sync> RuntimeManagerTrait for RuntimeManager<D> {
         _session: &'a Session,
         _params: serde_json::Value,
     ) -> Result<RuntimeExecuteResponse> {
-        Err(Error::Runtime("WebAssembly execution is temporarily disabled".to_string()))
+        Err(Error::Runtime(
+            "WebAssembly execution is temporarily disabled".to_string(),
+        ))
     }
 
     async fn execute_in_container<'a>(
@@ -310,13 +321,19 @@ impl<D: DbPoolTrait + Send + Sync> RuntimeManagerTrait for RuntimeManager<D> {
             let function_name = openfaas_client.get_function_name_for_runtime(runtime_type);
             debug!("Attempting to execute via OpenFaaS: {}", function_name);
 
-            match openfaas_client.invoke_function(&function_name, session, params.clone()).await {
+            match openfaas_client
+                .invoke_function(&function_name, session, params.clone())
+                .await
+            {
                 Ok(response) => {
                     info!("Successfully executed via OpenFaaS: {}", function_name);
                     return Ok(response);
-                },
+                }
                 Err(e) => {
-                    warn!("OpenFaaS execution failed, falling back to direct container: {}", e);
+                    warn!(
+                        "OpenFaaS execution failed, falling back to direct container: {}",
+                        e
+                    );
                 }
             }
         }
@@ -331,9 +348,9 @@ impl<D: DbPoolTrait + Send + Sync> RuntimeManagerTrait for RuntimeManager<D> {
             script_content: session.script_content.clone(),
         };
 
-        use tokio_retry::strategy::{ExponentialBackoff, jitter};
+        use tokio_retry::strategy::{jitter, ExponentialBackoff};
         use tokio_retry::Retry;
-        
+
         let retry_strategy = ExponentialBackoff::from_millis(10)
             .factor(2)
             .max_delay(Duration::from_secs(1))
@@ -341,13 +358,13 @@ impl<D: DbPoolTrait + Send + Sync> RuntimeManagerTrait for RuntimeManager<D> {
             .map(jitter);
 
         let client = reqwest::Client::new();
-        
+
         let response = Retry::spawn(retry_strategy, || {
             let client = client.clone();
             let request = &request;
             let runtime_url = runtime_url;
             let timeout_seconds = self.config.timeout_seconds;
-            
+
             async move {
                 let response = timeout(
                     Duration::from_secs(timeout_seconds),
@@ -358,10 +375,11 @@ impl<D: DbPoolTrait + Send + Sync> RuntimeManagerTrait for RuntimeManager<D> {
                 )
                 .await
                 .map_err(|_| Error::Runtime("Runtime execution timed out".to_string()))??;
-                
+
                 Ok::<_, Error>(response)
             }
-        }).await?;
+        })
+        .await?;
 
         let runtime_response = response
             .json::<RuntimeExecuteResponse>()
@@ -369,11 +387,6 @@ impl<D: DbPoolTrait + Send + Sync> RuntimeManagerTrait for RuntimeManager<D> {
             .map_err(Error::from)?;
 
         Ok(runtime_response)
-    }
-
-    #[cfg(test)]
-    fn get_config(&self) -> &RuntimeConfig {
-        &self.config
     }
 }
 
@@ -480,16 +493,25 @@ mod tests {
             runtime_max_retries: 3,
         };
 
-        assert_eq!(RuntimeType::NodeJs.get_runtime_url(&config), "http://nodejs:8080");
-        assert_eq!(RuntimeType::Python.get_runtime_url(&config), "http://python:8080");
-        assert_eq!(RuntimeType::Rust.get_runtime_url(&config), "http://rust:8080");
+        assert_eq!(
+            RuntimeType::NodeJs.get_runtime_url(&config),
+            "http://nodejs:8080"
+        );
+        assert_eq!(
+            RuntimeType::Python.get_runtime_url(&config),
+            "http://python:8080"
+        );
+        assert_eq!(
+            RuntimeType::Rust.get_runtime_url(&config),
+            "http://rust:8080"
+        );
     }
 
     #[tokio::test]
     async fn test_compile_rust_script_disabled() {
         let runtime_manager = create_test_runtime_manager();
         let session = create_test_session("rust-test", Some("fn main() {}"));
-        
+
         let result = runtime_manager.compile_rust_script(&session).await;
         assert!(result.is_err());
         match result {
@@ -505,7 +527,7 @@ mod tests {
         let runtime_manager = create_test_runtime_manager();
         let session = create_test_session("rust-test", Some("fn main() {}"));
         let params = json!({"input": 42});
-        
+
         let result = runtime_manager.execute_wasm(&session, params).await;
         assert!(result.is_err());
         match result {

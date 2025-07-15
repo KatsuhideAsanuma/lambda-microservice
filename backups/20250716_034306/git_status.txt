@@ -1,0 +1,19 @@
+On branch mod_20250715
+Your branch is up to date with 'origin/mod_20250715'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   controller/src/api.rs
+	modified:   controller/src/session.rs
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	CLINE_LOG_20250716.md
+	backups/20250716_031119/
+	backups/20250716_034306/
+	controller/Cargo.lock
+	scripts/docker_test.sh
+	scripts/performance_test_simple.sh
+
+no changes added to commit (use "git add" and/or "git commit -a")

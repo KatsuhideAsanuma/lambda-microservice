@@ -1,17 +1,16 @@
-
 use crate::error::{Error, Result};
-use crate::session::DbPoolTrait;
 use crate::logger::DatabaseLoggerTrait;
-use crate::runtime::{RuntimeExecuteResponse, RuntimeType};
-use crate::session::Session;
 use crate::openfaas::{OpenFaaSRequest, OpenFaaSResponse};
+use crate::runtime::{RuntimeExecuteResponse, RuntimeType};
+use crate::session::DbPoolTrait;
+use crate::session::Session;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_postgres::Row;
-use serde::{Serialize, Deserialize};
-use std::pin::Pin;
-use std::future::Future;
 
 #[derive(Clone)]
 pub struct MockDatabaseLogger {
@@ -31,7 +30,7 @@ impl MockDatabaseLogger {
         self.log_error_result = Arc::new(Mutex::new(result));
         self
     }
-    
+
     pub fn with_log_request_result(mut self, result: Result<()>) -> Self {
         self.log_request_result = Arc::new(Mutex::new(result));
         self
@@ -56,11 +55,9 @@ impl DatabaseLoggerTrait for MockDatabaseLogger {
         _runtime_metrics: Option<serde_json::Value>,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
         let result = self.log_request_result.clone();
-        Box::pin(async move {
-            result.lock().await.clone()
-        })
+        Box::pin(async move { result.lock().await.clone() })
     }
-    
+
     fn log_error(
         &self,
         _request_log_id: String,
@@ -70,9 +67,7 @@ impl DatabaseLoggerTrait for MockDatabaseLogger {
         _context: Option<serde_json::Value>,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
         let result = self.log_error_result.clone();
-        Box::pin(async move {
-            result.lock().await.clone()
-        })
+        Box::pin(async move { result.lock().await.clone() })
     }
 }
 
@@ -88,10 +83,12 @@ impl MockPostgresPool {
         Self {
             execute_result: Arc::new(Mutex::new(Ok(1))),
             query_opt_result: Arc::new(Mutex::new(Ok(None))),
-            query_one_result: Arc::new(Mutex::new(Err(Error::NotFound("No rows found".to_string())))),
+            query_one_result: Arc::new(Mutex::new(Err(Error::NotFound(
+                "No rows found".to_string(),
+            )))),
         }
     }
-    
+
     pub fn is_valid(&self) -> bool {
         true
     }
@@ -111,38 +108,70 @@ impl MockPostgresPool {
         self
     }
 
-    pub async fn execute(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
+    pub async fn execute(
+        &self,
+        _query: &str,
+        _params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<u64> {
         self.execute_result.lock().await.clone()
     }
 
-    pub async fn query(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<Row>> {
+    pub async fn query(
+        &self,
+        _query: &str,
+        _params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<Vec<Row>> {
         Ok(Vec::new())
     }
 
-    pub async fn query_one(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Row> {
+    pub async fn query_one(
+        &self,
+        _query: &str,
+        _params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<Row> {
         self.query_one_result.lock().await.clone()
     }
 
-    pub async fn query_opt(&self, _query: &str, _params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<Row>> {
+    pub async fn query_opt(
+        &self,
+        _query: &str,
+        _params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<Option<Row>> {
         self.query_opt_result.lock().await.clone()
     }
 }
 
 #[async_trait]
 impl DbPoolTrait for MockPostgresPool {
-    async fn execute<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
+    async fn execute<'a>(
+        &'a self,
+        query: &'a str,
+        params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<u64> {
         self.execute(query, params).await
     }
-    
-    async fn query<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<Row>> {
+
+    async fn query<'a>(
+        &'a self,
+        query: &'a str,
+        params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<Vec<Row>> {
         self.query(query, params).await
     }
-    
-    async fn query_opt<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<Row>> {
+
+    async fn query_opt<'a>(
+        &'a self,
+        query: &'a str,
+        params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<Option<Row>> {
         self.query_opt(query, params).await
     }
-    
-    async fn query_one<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Row> {
+
+    async fn query_one<'a>(
+        &'a self,
+        query: &'a str,
+        params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<Row> {
         self.query_one(query, params).await
     }
 }
@@ -168,7 +197,7 @@ impl MockRedisPool {
             expire_result: Arc::new(Mutex::new(Ok(true))),
         }
     }
-    
+
     pub fn is_valid(&self) -> bool {
         true
     }
@@ -183,7 +212,10 @@ impl MockRedisPool {
         self
     }
 
-    pub async fn get_value<T: serde::de::DeserializeOwned + Send + Sync>(&self, _key: &str) -> Result<Option<T>> {
+    pub async fn get_value<T: serde::de::DeserializeOwned + Send + Sync>(
+        &self,
+        _key: &str,
+    ) -> Result<Option<T>> {
         let result = self.get_result.lock().await.clone()?;
         match result {
             Some(value) => Ok(Some(serde_json::from_str(&value)?)),
@@ -191,7 +223,12 @@ impl MockRedisPool {
         }
     }
 
-    pub async fn set_ex<T: Serialize + Send + Sync>(&self, _key: &str, _value: &T, _expiry_seconds: u64) -> Result<()> {
+    pub async fn set_ex<T: Serialize + Send + Sync>(
+        &self,
+        _key: &str,
+        _value: &T,
+        _expiry_seconds: u64,
+    ) -> Result<()> {
         self.set_ex_result.lock().await.clone()
     }
 
@@ -234,12 +271,12 @@ impl MockOpenFaaSClient {
             }))),
         }
     }
-    
+
     pub fn with_invoke_result(mut self, result: Result<RuntimeExecuteResponse>) -> Self {
         self.invoke_result = Arc::new(Mutex::new(result));
         self
     }
-    
+
     pub async fn invoke_function(
         &self,
         _function_name: &str,
@@ -248,7 +285,7 @@ impl MockOpenFaaSClient {
     ) -> Result<RuntimeExecuteResponse> {
         self.invoke_result.lock().await.clone()
     }
-    
+
     pub fn get_function_name_for_runtime(&self, runtime_type: RuntimeType) -> String {
         match runtime_type {
             RuntimeType::NodeJs => "nodejs-runtime".to_string(),
@@ -256,8 +293,13 @@ impl MockOpenFaaSClient {
             RuntimeType::Rust => "rust-runtime".to_string(),
         }
     }
-    
-    pub fn build_request(&self, _function_name: &str, session: &Session, params: serde_json::Value) -> OpenFaaSRequest {
+
+    pub fn build_request(
+        &self,
+        _function_name: &str,
+        session: &Session,
+        params: serde_json::Value,
+    ) -> OpenFaaSRequest {
         OpenFaaSRequest {
             request_id: session.request_id.clone(),
             params,
@@ -303,17 +345,17 @@ impl MockRuntimeManager {
             call_count: Arc::new(AtomicUsize::new(0)),
         }
     }
-    
+
     pub fn with_execute_result(mut self, result: Result<RuntimeExecuteResponse>) -> Self {
         self.execute_result = Arc::new(Mutex::new(result));
         self
     }
-    
+
     pub fn with_compile_result(mut self, result: Result<Vec<u8>>) -> Self {
         self.compile_result = Arc::new(Mutex::new(result));
         self
     }
-    
+
     pub fn get_call_count(&self) -> usize {
         self.call_count.load(Ordering::SeqCst)
     }
@@ -329,12 +371,12 @@ impl RuntimeManagerTrait for MockRuntimeManager {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         self.execute_result.lock().await.clone()
     }
-    
+
     async fn compile_rust_script<'a>(&'a self, _session: &'a Session) -> Result<Vec<u8>> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         self.compile_result.lock().await.clone()
     }
-    
+
     async fn execute_wasm<'a>(
         &'a self,
         _session: &'a Session,
@@ -343,7 +385,7 @@ impl RuntimeManagerTrait for MockRuntimeManager {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         self.execute_result.lock().await.clone()
     }
-    
+
     async fn execute_in_container<'a>(
         &'a self,
         _runtime_type: RuntimeType,
@@ -353,7 +395,7 @@ impl RuntimeManagerTrait for MockRuntimeManager {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         self.execute_result.lock().await.clone()
     }
-    
+
     async fn compile_with_wasmtime<'a>(
         &'a self,
         _script_content: &'a str,
@@ -361,10 +403,5 @@ impl RuntimeManagerTrait for MockRuntimeManager {
     ) -> Result<Vec<u8>> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         self.compile_result.lock().await.clone()
-    }
-    
-    #[cfg(test)]
-    fn get_config(&self) -> &RuntimeConfig {
-        &self.config
     }
 }
