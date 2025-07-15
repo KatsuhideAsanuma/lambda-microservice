@@ -1,4 +1,4 @@
-FROM rust:1.83-slim as builder
+FROM rust:1.82-slim as builder
 
 WORKDIR /app
 
@@ -47,20 +47,20 @@ RUN echo '#!/bin/bash\nwhile true; do\n  echo -e "HTTP/1.1 200 OK\\r\\nContent-T
 
 # Create a startup script
 RUN echo '#!/bin/bash\n\
-echo "Starting Rust runtime..."\n\
-# Create required directories for wasm-pack\n\
-mkdir -p /root/.cargo/bin\n\
-mkdir -p /root/.wasm-pack\n\
-# Start health check server in background\n\
-echo "Starting health check server on port 8080"\n\
-/app/health_server.sh &\n\
-# Run the application with debug output\n\
-echo "Running with RUST_LOG=debug and RUST_BACKTRACE=full"\n\
-RUST_LOG=debug RUST_BACKTRACE=full /app/lambda-microservice-rust-runtime || true\n\
-# Keep container running\n\
-echo "Health check server running. Container will stay alive."\n\
-tail -f /dev/null\n\
-' > /app/start.sh && chmod +x /app/start.sh
+    echo "Starting Rust runtime..."\n\
+    # Create required directories for wasm-pack\n\
+    mkdir -p /root/.cargo/bin\n\
+    mkdir -p /root/.wasm-pack\n\
+    # Start health check server in background\n\
+    echo "Starting health check server on port 8080"\n\
+    /app/health_server.sh &\n\
+    # Run the application with debug output\n\
+    echo "Running with RUST_LOG=debug and RUST_BACKTRACE=full"\n\
+    RUST_LOG=debug RUST_BACKTRACE=full /app/lambda-microservice-rust-runtime || true\n\
+    # Keep container running\n\
+    echo "Health check server running. Container will stay alive."\n\
+    tail -f /dev/null\n\
+    ' > /app/start.sh && chmod +x /app/start.sh
 
 # Expose port
 EXPOSE 8080

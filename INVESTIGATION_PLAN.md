@@ -370,24 +370,73 @@
 
 ---
 
-## 4. 実行スケジュール
+## 4. 実行スケジュール（修正版）
 
-### Week 1: 問題調査
-- **Day 1-2**: エラーログ分析、デバッグ環境設定
-- **Day 3-4**: 型システム問題分析
-- **Day 5-7**: 設定・環境問題分析
+### ✅ Phase 1: 問題調査（完了 - 2025/07/15）
+- **Day 1**: エラーログ分析、デバッグ環境設定 ✅
+- **成果**: 設定問題解決、ビルドエラー根本原因特定
+- **発見**: Rust Edition 2024互換性問題、複雑な依存関係問題
 
-### Week 2: 構造・フロー調査
+### 🔄 Phase 1.5: 緊急ビルド修正（追加フェーズ - 1-3日）
+- **目的**: サービス起動可能な状態への復旧
+- **安全対策**: プロジェクト保護スクリプトの使用必須
+
+#### 作業手順（安全な修正ワークフロー使用）
+**Day 1**: Rustバージョン大幅ダウングレード
+```bash
+# 事前保護
+bash scripts/project_guard.sh full-check
+
+# 安全な修正実行
+bash scripts/safe_modification_workflow.sh rust-downgrade
+
+# 結果確認
+bash scripts/project_guard.sh check
+```
+
+**Day 2**: 問題クレートの除去・代替
+```bash
+# 事前保護
+bash scripts/project_guard.sh full-check
+
+# 依存関係修正
+bash scripts/safe_modification_workflow.sh dependency-fix
+
+# 結果確認
+bash scripts/project_guard.sh check
+```
+
+**Day 3**: 最小構成でのビルド成功確認
+```bash
+# 事前保護
+bash scripts/project_guard.sh full-check
+
+# 最小構成ビルドテスト
+bash scripts/safe_modification_workflow.sh minimal-build
+
+# 結果確認
+docker-compose ps
+```
+
+#### 緊急時対応
+```bash
+# 問題発生時の即座復旧
+bash scripts/project_guard.sh restore backups/最新バックアップ
+```
+
+### Phase 2: 構造・フロー調査（ビルド成功後）
+- **前提条件**: Phase 1.5完了、サービス起動確認
 - **Day 1-2**: アーキテクチャ概要調査
 - **Day 3-5**: コンポーネント詳細分析
 - **Day 6-7**: 機能実現フロー分析
 
-### Week 3: テストカバレッジ調査
+### Phase 3: テストカバレッジ調査（ビルド成功後）
+- **前提条件**: Phase 2完了、システム理解完了
 - **Day 1-2**: テストファイル調査
 - **Day 3-4**: カバレッジ測定
 - **Day 5-7**: テスト品質分析、改善計画策定
 
-### Week 4: 統合・レポート作成
+### Phase 4: 統合・レポート作成
 - **Day 1-3**: 調査結果の統合分析
 - **Day 4-5**: 改善提案の策定
 - **Day 6-7**: 最終レポート作成
