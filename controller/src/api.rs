@@ -510,7 +510,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 use async_trait::async_trait;
 
 #[async_trait]
-pub trait SessionManagerTrait {
+pub trait SessionManagerTrait: Send + Sync {
     async fn create_session<'a>(
         &'a self,
         language_title: String,
@@ -530,7 +530,7 @@ pub trait SessionManagerTrait {
 }
 
 #[async_trait]
-pub trait RuntimeManagerTrait {
+pub trait RuntimeManagerTrait: Send + Sync {
     async fn execute<'a>(
         &'a self,
         session: &'a Session,
@@ -563,7 +563,7 @@ pub trait RuntimeManagerTrait {
 }
 
 #[async_trait]
-pub trait FunctionManagerTrait {
+pub trait FunctionManagerTrait: Send + Sync {
     async fn get_functions<'a>(&'a self, query: &'a FunctionQuery) -> Result<Vec<Function>>;
     async fn get_function<'a>(&'a self, language_title: &'a str) -> Result<Option<Function>>;
     async fn create_function<'a>(&'a self, function: &'a Function) -> Result<Function>;

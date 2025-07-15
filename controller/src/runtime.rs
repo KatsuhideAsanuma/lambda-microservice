@@ -265,7 +265,7 @@ impl<D: DbPoolTrait> RuntimeManager<D> {
 }
 
 #[async_trait]
-impl<D: DbPoolTrait> RuntimeManagerTrait for RuntimeManager<D> {
+impl<D: DbPoolTrait + Send + Sync> RuntimeManagerTrait for RuntimeManager<D> {
     async fn execute<'a>(
         &'a self,
         session: &'a Session,

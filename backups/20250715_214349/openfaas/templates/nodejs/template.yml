@@ -1,0 +1,12 @@
+language: nodejs
+fprocess: node index.js
+build_options:
+  - name: dev
+    packages: 
+      - make
+      - automake
+      - gcc
+      - g++
+      - nodejs
+welcome_message: |
+  This template uses the Node.js language runtime for Lambda Microservice

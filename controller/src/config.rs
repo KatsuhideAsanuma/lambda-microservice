@@ -33,20 +33,20 @@ pub struct RuntimeConfig {
 
 impl Config {
     // 新規追加: 設定ファイルから改行文字を除去して読み込む
-    fn read_secret_file(path: &str) -> Result<String, std::io::Error> {
+    fn read_secret_file(path: &str) -> std::result::Result<String, std::io::Error> {
         std::fs::read_to_string(path)
             .map(|content| content.trim().to_string()) // 改行文字除去
     }
 
     // 新規追加: 設定検証
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<()> {
         // URL形式の検証
         if !self.database_url.starts_with("postgres://") && !self.database_url.starts_with("postgresql://") {
-            return Err("Invalid database URL format".to_string());
+            return Err(Error::Config("Invalid database URL format".to_string()));
         }
         
         if !self.redis_url.starts_with("redis://") {
-            return Err("Invalid Redis URL format".to_string());
+            return Err(Error::Config("Invalid Redis URL format".to_string()));
         }
         
         Ok(())

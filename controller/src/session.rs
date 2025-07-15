@@ -154,7 +154,7 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManager<D, R> {
 }
 
 #[async_trait]
-impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D, R> {
+impl<D: DbPoolTrait + Send + Sync, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D, R> {
     async fn create_session<'a>(
         &'a self,
         language_title: String,

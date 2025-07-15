@@ -1,0 +1,10 @@
+language: rust
+fprocess: ./main
+build_options:
+  - name: dev
+    packages: 
+      - build-essential
+      - pkg-config
+      - libssl-dev
+welcome_message: |
+  This template uses the Rust language runtime for Lambda Microservice

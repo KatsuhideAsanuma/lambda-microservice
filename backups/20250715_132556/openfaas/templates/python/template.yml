@@ -1,0 +1,9 @@
+language: python
+fprocess: python app.py
+build_options:
+  - name: dev
+    packages: 
+      - python3-dev
+      - build-essential
+welcome_message: |
+  This template uses the Python language runtime for Lambda Microservice

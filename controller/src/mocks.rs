@@ -134,6 +134,10 @@ impl DbPoolTrait for MockPostgresPool {
         self.execute(query, params).await
     }
     
+    async fn query<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<Row>> {
+        self.query(query, params).await
+    }
+    
     async fn query_opt<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<Row>> {
         self.query_opt(query, params).await
     }
@@ -290,10 +294,8 @@ impl MockRuntimeManager {
                 rust_runtime_url: "http://localhost:8083".to_string(),
                 timeout_seconds: 30,
                 max_script_size: 1024 * 1024, // 1MB
-                wasm_compile_timeout_seconds: 60,
                 selection_strategy: RuntimeSelectionStrategy::PrefixMatching,
                 runtime_mappings: vec![],
-                kubernetes_namespace: Some("default".to_string()),
                 redis_url: Some("redis://localhost:6379".to_string()),
                 cache_ttl_seconds: Some(3600),
                 runtime_max_retries: 3,

@@ -46,7 +46,7 @@ impl<T: DbPoolTrait + ?Sized> DatabaseLogger<T> {
     }
 }
 
-impl<T: DbPoolTrait + ?Sized + 'static> DatabaseLoggerTrait for DatabaseLogger<T> {
+impl<T: DbPoolTrait + Send + Sync + ?Sized + 'static> DatabaseLoggerTrait for DatabaseLogger<T> {
     fn log_request(
         &self,
         request_id: String,

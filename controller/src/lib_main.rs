@@ -29,10 +29,9 @@ pub async fn init_database(config: &Config) -> PostgresPool {
     postgres_pool
 }
 
-pub fn init_redis(config: &Config) -> RedisPool {
-    let redis_pool = RedisPool::new(&config.redis_url)
-        .expect("Failed to create Redis connection pool");
-    info!("Redis connection pool initialized");
+pub fn init_redis(_config: &Config) -> RedisPool {
+    let redis_pool = RedisPool::new();
+    info!("Redis connection pool initialized (using in-memory cache)");
     redis_pool
 }
 
