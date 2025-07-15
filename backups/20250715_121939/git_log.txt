@@ -1,0 +1,10 @@
+f837b33 Add safe work procedures and scripts for Lambda Microservice project
+b3f8696 Add logging, testing endpoints, and enhance function queries
+37e0c52 readme
+4ad54ac Remove startup troubleshooting docs and minimal docker config
+b9e9fc4 Improve config validation and add session support
+2bcd83e Remove Cargo.lock and update build config to fix startup issues
+0398ecd Fix Rust runtime container to keep running and respond to health checks
+3ecd690 Fix Node.js runtime Dockerfile to work without package-lock.json
+959e9c5 Add PostgreSQL client to controller container for one-command startup
+9755492 Add スクリプトテスト (Script Test) for local Lambda microservice API testing

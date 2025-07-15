@@ -1,32 +1,29 @@
 [package]
 name = "lambda-microservice-controller"
 version = "0.1.0"
-edition = "2021"
+edition = "2018"
 authors = ["Lambda Microservice Team"]
 description = "Rust controller for lambda microservice infrastructure"
 
 [dependencies]
 # Web framework
-actix-web = "4.3.1"
-actix-cors = "0.6.4"
-actix-rt = "2.8.0"
-
-# Fix for edition2024 compatibility issue
-base64ct = "1.6.0"
+actix-web = "3.3"
+actix-cors = "0.5"
+actix-rt = "2.2"
 
 # Serialization/Deserialization
 serde = { version = "1.0.163", features = ["derive"] }
 serde_json = "1.0.96"
 
 # Database
-tokio-postgres = { version = "0.7.8", features = ["with-uuid-1", "with-serde_json-1", "with-chrono-0_4"] }
-postgres-types = { version = "0.2.5", features = ["derive", "with-chrono-0_4"] }
-deadpool-postgres = "0.10.5"
-sqlx = { version = "0.6.3", features = ["runtime-tokio-native-tls", "postgres", "chrono", "uuid", "json"] }
+tokio-postgres = { version = "0.7.0", features = ["with-uuid-1", "with-serde_json-1", "with-chrono-0_4"] }
+postgres-types = { version = "0.2.0", features = ["derive", "with-chrono-0_4"] }
+deadpool-postgres = "0.10.0"
+# sqlx = { version = "0.6.3", features = ["runtime-tokio-native-tls", "postgres", "chrono", "uuid", "json"] } # TEMPORARILY DISABLED
 
-# Redis
-redis = { version = "0.23.0", features = ["tokio-comp", "connection-manager"] }
-deadpool-redis = "0.12.0"
+# Redis - TEMPORARILY DISABLED (compatibility issues)
+# redis = { version = "0.23.0", features = ["tokio-comp", "connection-manager"] }
+# deadpool-redis = "0.11.0"
 
 # HTTP client
 reqwest = { version = "0.11.18", features = ["json"] }
@@ -38,7 +35,7 @@ futures = "0.3.28"
 # Logging and tracing
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-tracing-actix-web = "0.7.4"
+# tracing-actix-web = "0.7.4"  # TEMPORARILY DISABLED
 
 # Error handling
 thiserror = "1.0.40"
@@ -57,27 +54,27 @@ regex = "1.5.6"
 tokio-retry = "0.3.0"
 rand = "0.8.5"
 
-# WebAssembly support (for Rust runtime)
-wasmtime = "8.0.1"
-wasmtime-wasi = "8.0.1"
+# WebAssembly support - TEMPORARILY DISABLED (compatibility issues)
+# wasmtime = "8.0.1"
+# wasmtime-wasi = "8.0.1"
 tempfile = "3.6.0"
 
-# gRPC support
-tonic = "0.9.2"
-prost = "0.11.9"
+# gRPC support - TEMPORARILY DISABLED (version conflict)
+# tonic = "0.9.2"
+# prost = "0.11.9"
 
-# Kubernetes support
-kube = { version = "0.78.0", features = ["runtime", "derive"] }
-k8s-openapi = { version = "0.17.0", features = ["v1_26"] }
+# Kubernetes support - TEMPORARILY DISABLED (version conflict)
+# kube = { version = "0.78.0", features = ["runtime", "derive"] }
+# k8s-openapi = { version = "0.17.0", features = ["v1_26"] }
 
 [build-dependencies]
-tonic-build = "0.9.2"
+# tonic-build = "0.9.2"  # TEMPORARILY DISABLED
 
 [dev-dependencies]
 mockall = "0.11.4"
 test-log = "0.2.11"
-env_logger = "0.10.0"
-actix-test = "0.1.1"
+# env_logger = "0.10.0"  # REMOVED - not used in source code
+# actix-test = "0.1.1"  # TEMPORARILY DISABLED
 
 [features]
 default = []
