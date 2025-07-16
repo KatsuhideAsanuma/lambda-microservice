@@ -1,0 +1,10 @@
+5a82b8d ｄ
+dde21e5 base
+912ec75 ｓ
+06f02ae Format markdown list items in base.md rules
+f352ffb Add Docker testing scripts and performance testing framework
+5987ee8 feat: Add utility functions and mock runtime servers for testing
+df252a5 Refactor Rust runtime: downgrade dependencies, disable WebAssembly execution, and update Dockerfile
+f837b33 Add safe work procedures and scripts for Lambda Microservice project
+b3f8696 Add logging, testing endpoints, and enhance function queries
+37e0c52 readme
