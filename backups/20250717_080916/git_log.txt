@@ -1,0 +1,10 @@
+eaf1c6e Fix Actix-web dependency injection and enable tracing logger
+8e8ae19 CLINE.mdアプデート
+b4e74c0 Implement session management with Redis and PostgreSQL integration
+5a82b8d ｄ
+dde21e5 base
+912ec75 ｓ
+06f02ae Format markdown list items in base.md rules
+f352ffb Add Docker testing scripts and performance testing framework
+5987ee8 feat: Add utility functions and mock runtime servers for testing
+df252a5 Refactor Rust runtime: downgrade dependencies, disable WebAssembly execution, and update Dockerfile

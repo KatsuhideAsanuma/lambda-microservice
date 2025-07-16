@@ -66,11 +66,6 @@ impl From<deadpool_postgres::PoolError> for Error {
     }
 }
 
-impl From<deadpool_redis::PoolError> for Error {
-    fn from(err: deadpool_redis::PoolError) -> Self {
-        Error::Cache(err.to_string())
-    }
-}
 
 impl From<reqwest::Error> for Error {
     fn from(err: reqwest::Error) -> Self {
@@ -90,11 +85,6 @@ impl From<tokio_postgres::Error> for Error {
     }
 }
 
-impl From<redis::RedisError> for Error {
-    fn from(err: redis::RedisError) -> Self {
-        Error::RedisCmd(err.to_string())
-    }
-}
 
 impl From<sqlx::Error> for Error {
     fn from(err: sqlx::Error) -> Self {
@@ -141,12 +131,6 @@ mod tests {
         assert!(matches!(error, Error::External(_)));
     }
 
-    #[test]
-    fn test_error_from_redis() {
-        let redis_error = redis::RedisError::from(io::Error::new(io::ErrorKind::Other, "Redis connection error"));
-        let error = Error::from(redis_error);
-        assert!(matches!(error, Error::RedisCmd(_)));
-    }
 
     #[test]
     fn test_error_from_sqlx() {

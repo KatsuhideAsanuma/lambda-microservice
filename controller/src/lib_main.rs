@@ -2,7 +2,7 @@ use actix_cors::Cors;
 use actix_web::{middleware, web, App, Error, dev::{ServiceRequest, ServiceResponse}};
 use crate::{
     api, config::Config, database::PostgresPool, function::FunctionManager, session::SessionManager,
-    cache::RedisPool, logger::DatabaseLogger, runtime::RuntimeManager, session::DbPoolTrait, cache::RedisPoolTrait
+    logger::DatabaseLogger, runtime::RuntimeManager, session::DbPoolTrait
 };
 use std::sync::Arc;
 use tracing::{info, Level};
@@ -29,12 +29,6 @@ pub async fn init_database(config: &Config) -> PostgresPool {
     postgres_pool
 }
 
-pub fn init_redis(_config: &Config) -> RedisPool {
-    let redis_pool = RedisPool::new();
-    info!("Redis connection pool initialized (using in-memory cache)");
-    redis_pool
-}
-
 pub fn create_cors() -> Cors {
     Cors::default()
         .allow_any_origin()
@@ -47,10 +41,9 @@ pub fn configure_app_for_testing() -> bool {
     true
 }
 
-pub fn configure_app_test<D, R, DL, RM>(
+pub fn configure_app_test<D, DL, RM>(
     _postgres_pool: D,
-    _redis_pool: R,
-    _session_manager: Arc<SessionManager<D, R>>,
+    _session_manager: Arc<SessionManager<D>>,
     _function_manager: Arc<FunctionManager<D>>,
     _db_logger: Arc<DL>,
     _runtime_manager: Arc<RM>,
@@ -58,17 +51,15 @@ pub fn configure_app_test<D, R, DL, RM>(
 ) -> bool
 where
     D: DbPoolTrait + Clone + 'static,
-    R: RedisPoolTrait + Clone + 'static,
     DL: 'static,
     RM: 'static,
 {
     true
 }
 
-pub fn configure_app<D, R, DL, RM>(
+pub fn configure_app<D, DL, RM>(
     postgres_pool: D,
-    redis_pool: R,
-    session_manager: Arc<SessionManager<D, R>>,
+    session_manager: Arc<SessionManager<D>>,
     function_manager: Arc<FunctionManager<D>>,
     db_logger: Arc<DL>,
     runtime_manager: Arc<RM>,
@@ -76,7 +67,6 @@ pub fn configure_app<D, R, DL, RM>(
 ) -> actix_web::Scope
 where
     D: DbPoolTrait + Clone + 'static,
-    R: RedisPoolTrait + Clone + 'static,
     DL: 'static,
     RM: 'static,
 {
@@ -84,7 +74,6 @@ where
 
     web::scope("")
         .app_data(web::Data::new(postgres_pool.clone()))
-        .app_data(web::Data::new(redis_pool.clone()))
         .app_data(web::Data::new(session_manager.clone()))
         .app_data(web::Data::new(function_manager.clone()))
         .app_data(web::Data::new(db_logger.clone()))

@@ -1,7 +1,6 @@
 
 use crate::{
     api::SessionManagerTrait,
-    cache::RedisPoolTrait,
     error::Result,
 };
 use async_trait::async_trait;
@@ -137,24 +136,22 @@ pub trait DbPoolTrait {
 
 
 
-pub struct SessionManager<D: DbPoolTrait, R: RedisPoolTrait> {
+pub struct SessionManager<D: DbPoolTrait> {
     db_pool: D,
-    redis_pool: R,
     session_expiry_seconds: u64,
 }
 
-impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManager<D, R> {
-    pub fn new(db_pool: D, redis_pool: R, session_expiry_seconds: u64) -> Self {
+impl<D: DbPoolTrait> SessionManager<D> {
+    pub fn new(db_pool: D, session_expiry_seconds: u64) -> Self {
         Self {
             db_pool,
-            redis_pool,
             session_expiry_seconds,
         }
     }
 }
 
 #[async_trait]
-impl<D: DbPoolTrait + Send + Sync, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D, R> {
+impl<D: DbPoolTrait + Send + Sync> SessionManagerTrait for SessionManager<D> {
     async fn create_session<'a>(
         &'a self,
         language_title: String,
@@ -172,15 +169,6 @@ impl<D: DbPoolTrait + Send + Sync, R: RedisPoolTrait> SessionManagerTrait for Se
             compile_options,
             self.session_expiry_seconds,
         );
-
-        let serialized = serde_json::to_string(&session)?;
-        self.redis_pool
-            .set_ex_raw(
-                &format!("session:{}", session.request_id),
-                &serialized,
-                self.session_expiry_seconds,
-            )
-            .await?;
 
         let query = r#"
             INSERT INTO meta.sessions (
@@ -210,17 +198,6 @@ impl<D: DbPoolTrait + Send + Sync, R: RedisPoolTrait> SessionManagerTrait for Se
     }
 
     async fn get_session<'a>(&'a self, request_id: &'a str) -> Result<Option<Session>> {
-        let redis_key = format!("session:{}", request_id);
-        let raw = self.redis_pool.get_value_raw(&redis_key).await?;
-        if let Some(raw_session) = raw {
-            let session: Session = serde_json::from_str(&raw_session)?;
-            if session.is_expired() {
-                self.expire_session(request_id).await?;
-                return Ok(None);
-            }
-            return Ok(Some(session));
-        }
-
         let query = r#"
             SELECT
                 request_id, language_title, user_id, created_at, expires_at,
@@ -228,7 +205,7 @@ impl<D: DbPoolTrait + Send + Sync, R: RedisPoolTrait> SessionManagerTrait for Se
                 script_content, script_hash, compiled_artifact, compile_options,
                 compile_status, compile_error, metadata
             FROM meta.sessions
-            WHERE request_id = $1
+            WHERE request_id = $1 AND expires_at > NOW()
         "#;
 
         let row_opt = self.db_pool.query_opt(query, &[&request_id]).await?;
@@ -262,20 +239,6 @@ impl<D: DbPoolTrait + Send + Sync, R: RedisPoolTrait> SessionManagerTrait for Se
                 metadata: row.get("metadata"),
             };
 
-            if session.is_expired() {
-                self.expire_session(request_id).await?;
-                return Ok(None);
-            }
-
-            let serialized = serde_json::to_string(&session)?;
-            self.redis_pool
-                .set_ex_raw(
-                    &redis_key,
-                    &serialized,
-                    self.session_expiry_seconds,
-                )
-                .await?;
-
             Ok(Some(session))
         } else {
             Ok(None)
@@ -283,15 +246,6 @@ impl<D: DbPoolTrait + Send + Sync, R: RedisPoolTrait> SessionManagerTrait for Se
     }
 
     async fn update_session<'a>(&'a self, session: &'a Session) -> Result<()> {
-        let serialized = serde_json::to_string(&session)?;
-        self.redis_pool
-            .set_ex_raw(
-                &format!("session:{}", session.request_id),
-                &serialized,
-                self.session_expiry_seconds,
-            )
-            .await?;
-
         let query = r#"
             UPDATE meta.sessions
             SET
@@ -325,10 +279,6 @@ impl<D: DbPoolTrait + Send + Sync, R: RedisPoolTrait> SessionManagerTrait for Se
     }
 
     async fn expire_session<'a>(&'a self, request_id: &'a str) -> Result<()> {
-        self.redis_pool
-            .del(&format!("session:{}", request_id))
-            .await?;
-
         let query = r#"
             UPDATE meta.sessions
             SET status = 'expired'

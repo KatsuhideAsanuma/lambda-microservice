@@ -2,7 +2,7 @@ use actix_cors::Cors;
 use actix_web::{middleware, web, App, HttpServer};
 use dotenv::dotenv;
 use lambda_microservice_controller::{
-    api, cache::RedisPool, config::Config, database::PostgresPool, function::FunctionManager,
+    api, config::Config, database::PostgresPool, function::FunctionManager,
     logger::DatabaseLogger, runtime::RuntimeManager, session::SessionManager,
 };
 use std::sync::Arc;
@@ -27,15 +27,11 @@ async fn main() -> std::io::Result<()> {
         .expect("Failed to create database connection pool");
     info!("Database connection pool initialized");
 
-    let redis_pool = RedisPool::new();
-    info!("In-memory cache initialized (Redis temporarily disabled)");
-
     let session_manager = Arc::new(SessionManager::new(
         postgres_pool.clone(),
-        redis_pool.clone(),
         config.session_expiry_seconds,
     )) as Arc<dyn api::SessionManagerTrait>;
-    info!("Session manager initialized");
+    info!("Session manager initialized (PostgreSQL only)");
 
     let function_manager =
         Arc::new(FunctionManager::new(postgres_pool.clone())) as Arc<dyn api::FunctionManagerTrait>;
@@ -68,7 +64,6 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Compress::default())
             .wrap(cors)
             .app_data(web::Data::new(postgres_pool.clone()))
-            .app_data(web::Data::new(redis_pool.clone()))
             .app_data(web::Data::new(session_manager.clone()))
             .app_data(web::Data::new(function_manager.clone()))
             .app_data(web::Data::new(db_logger.clone()))
