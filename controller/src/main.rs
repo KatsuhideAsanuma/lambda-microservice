@@ -7,7 +7,7 @@ use lambda_microservice_controller::{
 };
 use std::sync::Arc;
 use tracing::{info, Level};
-// use tracing_actix_web::TracingLogger; // TEMPORARILY DISABLED
+use tracing_actix_web::TracingLogger;
 use tracing_subscriber::FmtSubscriber;
 
 #[actix_web::main]
@@ -64,15 +64,15 @@ async fn main() -> std::io::Result<()> {
             .max_age(3600);
 
         App::new()
-            // .wrap(TracingLogger::default()) // TEMPORARILY DISABLED
+            .wrap(TracingLogger::default())
             .wrap(middleware::Compress::default())
             .wrap(cors)
             .app_data(web::Data::new(postgres_pool.clone()))
             .app_data(web::Data::new(redis_pool.clone()))
-            .app_data(web::Data::from(session_manager.clone()))
-            .app_data(web::Data::from(function_manager.clone()))
-            .app_data(web::Data::from(db_logger.clone()))
-            .app_data(web::Data::from(runtime_manager.clone()))
+            .app_data(web::Data::new(session_manager.clone()))
+            .app_data(web::Data::new(function_manager.clone()))
+            .app_data(web::Data::new(db_logger.clone()))
+            .app_data(web::Data::new(runtime_manager.clone()))
             .app_data(web::Data::new(config.clone()))
             .configure(api::configure)
     })
