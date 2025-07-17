@@ -1,9 +1,11 @@
 use crate::{
     config::Config,
+    database::PostgresPool,
     error::Result,
-    function::{Function, FunctionQuery},
-    runtime::{RuntimeConfig, RuntimeExecuteResponse, RuntimeType},
-    session::{DbPoolTrait, Session},
+    function::{Function, FunctionManager, FunctionQuery},
+    logger::{DatabaseLogger, DatabaseLoggerTrait},
+    runtime::{RuntimeConfig, RuntimeExecuteResponse, RuntimeManager, RuntimeType},
+    session::{DbPoolTrait, Session, SessionManager},
 };
 use actix_web::{
     get, post,
@@ -68,10 +70,10 @@ pub struct FunctionInfo {
 
 async fn initialize_internal(
     req: HttpRequest,
-    session_manager: Data<Arc<dyn SessionManagerTrait>>,
-    runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
+    session_manager: Data<Arc<SessionManager<PostgresPool>>>,
+    runtime_manager: Data<Arc<RuntimeManager<PostgresPool>>>,
     config: Data<Config>,
-    db_logger: Data<Arc<dyn crate::logger::DatabaseLoggerTrait>>,
+    db_logger: Data<Arc<DatabaseLogger<PostgresPool>>>,
     body: Json<InitializeRequest>,
 ) -> HttpResponse {
     let start_time = std::time::Instant::now();
@@ -85,7 +87,7 @@ async fn initialize_internal(
             Ok(value) => value.to_string(),
             Err(_) => {
                 let request_id = uuid::Uuid::new_v4().to_string();
-                let _ = db_logger
+                let _ = (**db_logger)
                     .log_error(
                         request_id.clone(),
                         "INVALID_HEADER".to_string(),
@@ -104,7 +106,7 @@ async fn initialize_internal(
         },
         None => {
             let request_id = uuid::Uuid::new_v4().to_string();
-            let _ = db_logger
+            let _ = (**db_logger)
                 .log_error(
                     request_id.clone(),
                     "MISSING_HEADER".to_string(),
@@ -164,7 +166,7 @@ async fn initialize_internal(
         Ok(session) => {
             let duration = start_time.elapsed().as_millis() as i32;
 
-            let _ = db_logger
+            let _ = (**db_logger)
                 .log_request(
                     session.request_id.clone(),
                     language_title.clone(),
@@ -195,7 +197,7 @@ async fn initialize_internal(
         }
         Err(err) => {
             let request_id = uuid::Uuid::new_v4().to_string();
-            let _ = db_logger
+            let _ = (**db_logger)
                 .log_error(
                     request_id.clone(),
                     "SESSION_CREATION_ERROR".to_string(),
@@ -218,10 +220,10 @@ async fn initialize_internal(
 async fn execute_internal(
     path: Path<String>,
     req: HttpRequest,
-    session_manager: Data<Arc<dyn SessionManagerTrait>>,
-    runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
-    function_manager: Data<Arc<dyn FunctionManagerTrait>>,
-    db_logger: Data<Arc<dyn crate::logger::DatabaseLoggerTrait>>,
+    session_manager: Data<Arc<SessionManager<PostgresPool>>>,
+    runtime_manager: Data<Arc<RuntimeManager<PostgresPool>>>,
+    function_manager: Data<Arc<FunctionManager<PostgresPool>>>,
+    db_logger: Data<Arc<DatabaseLogger<PostgresPool>>>,
     body: Json<ExecuteRequest>,
 ) -> HttpResponse {
     let start_time = std::time::Instant::now();
@@ -370,7 +372,7 @@ async fn execute_internal(
 #[get("/api/v1/sessions/{request_id}")]
 async fn get_session_state(
     path: Path<String>,
-    session_manager: Data<Arc<dyn SessionManagerTrait>>,
+    session_manager: Data<Arc<SessionManager<PostgresPool>>>,
 ) -> HttpResponse {
     let request_id = path.into_inner();
 
@@ -396,7 +398,7 @@ async fn get_session_state(
 
 #[get("/api/v1/functions")]
 async fn get_function_list(
-    function_manager: Data<Arc<dyn FunctionManagerTrait>>,
+    function_manager: Data<Arc<FunctionManager<PostgresPool>>>,
     query: web::Query<FunctionQuery>,
 ) -> HttpResponse {
     tracing::info!("get_function_list called with query: {:?}", query);
@@ -434,7 +436,7 @@ async fn get_function_list(
 
 #[get("/api/v1/functions/{language_title}")]
 async fn get_function_detail(
-    function_manager: Data<Arc<dyn FunctionManagerTrait>>,
+    function_manager: Data<Arc<FunctionManager<PostgresPool>>>,
     path: Path<String>,
 ) -> HttpResponse {
     let language_title = path.into_inner();
@@ -469,10 +471,10 @@ async fn get_function_detail(
 #[post("/api/v1/initialize")]
 async fn initialize(
     req: HttpRequest,
-    session_manager: Data<Arc<dyn SessionManagerTrait>>,
-    runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
+    session_manager: Data<Arc<SessionManager<PostgresPool>>>,
+    runtime_manager: Data<Arc<RuntimeManager<PostgresPool>>>,
     config: Data<Config>,
-    db_logger: Data<Arc<dyn crate::logger::DatabaseLoggerTrait>>,
+    db_logger: Data<Arc<DatabaseLogger<PostgresPool>>>,
     body: Json<InitializeRequest>,
 ) -> HttpResponse {
     initialize_internal(
@@ -490,10 +492,10 @@ async fn initialize(
 async fn execute(
     path: Path<String>,
     req: HttpRequest,
-    session_manager: Data<Arc<dyn SessionManagerTrait>>,
-    runtime_manager: Data<Arc<dyn RuntimeManagerTrait>>,
-    function_manager: Data<Arc<dyn FunctionManagerTrait>>,
-    db_logger: Data<Arc<dyn crate::logger::DatabaseLoggerTrait>>,
+    session_manager: Data<Arc<SessionManager<PostgresPool>>>,
+    runtime_manager: Data<Arc<RuntimeManager<PostgresPool>>>,
+    function_manager: Data<Arc<FunctionManager<PostgresPool>>>,
+    db_logger: Data<Arc<DatabaseLogger<PostgresPool>>>,
     body: Json<ExecuteRequest>,
 ) -> HttpResponse {
     execute_internal(
@@ -526,7 +528,7 @@ async fn test_endpoint() -> HttpResponse {
 
 #[get("/test-function-manager")]
 async fn test_function_manager(
-    function_manager: Data<Arc<dyn FunctionManagerTrait>>,
+    function_manager: Data<Arc<FunctionManager<PostgresPool>>>,
 ) -> HttpResponse {
     tracing::info!("test_function_manager called");
     HttpResponse::Ok().json(serde_json::json!({

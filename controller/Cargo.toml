@@ -70,6 +70,7 @@ parking_lot = "0.12"  # Better mutexes
 bytes = "1.5"
 dotenv = "0.15"  # Environment variable loading
 
+
 [build-dependencies]
 tonic-build = { version = "0.10", optional = true }
 

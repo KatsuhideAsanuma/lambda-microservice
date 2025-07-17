@@ -2,8 +2,8 @@ use actix_cors::Cors;
 use actix_web::{middleware, web, App, HttpServer};
 use dotenv::dotenv;
 use lambda_microservice_controller::{
-    api, config::Config, database::PostgresPool, function::FunctionManager,
-    logger::DatabaseLogger, runtime::RuntimeManager, session::SessionManager,
+    api, config::Config, database::PostgresPool, function::FunctionManager, logger::DatabaseLogger,
+    runtime::RuntimeManager, session::SessionManager,
 };
 use std::sync::Arc;
 use tracing::{info, Level};
@@ -30,22 +30,20 @@ async fn main() -> std::io::Result<()> {
     let session_manager = Arc::new(SessionManager::new(
         postgres_pool.clone(),
         config.session_expiry_seconds,
-    )) as Arc<dyn api::SessionManagerTrait>;
+    ));
     info!("Session manager initialized (PostgreSQL only)");
 
-    let function_manager =
-        Arc::new(FunctionManager::new(postgres_pool.clone())) as Arc<dyn api::FunctionManagerTrait>;
+    let function_manager = Arc::new(FunctionManager::new(postgres_pool.clone()));
     info!("Function manager initialized");
 
-    let db_logger = Arc::new(DatabaseLogger::new(postgres_pool.clone().into(), true))
-        as Arc<dyn lambda_microservice_controller::logger::DatabaseLoggerTrait>;
+    let db_logger = Arc::new(DatabaseLogger::new(Arc::new(postgres_pool.clone()), true));
     info!("Database logger initialized");
 
     let runtime_manager = Arc::new(
         RuntimeManager::new(&config.runtime_config, postgres_pool.clone())
             .await
             .expect("Failed to initialize runtime manager"),
-    ) as Arc<dyn api::RuntimeManagerTrait>;
+    );
     info!("Runtime manager initialized");
 
     info!("Starting server at {}:{}", config.host, config.port);
