@@ -20,29 +20,28 @@ echo
 
 # Test 1: Node.js Calculator - Addition
 echo "2. Test 1: Node.js Calculator - Addition (5 + 3)"
-REQUEST_ID_1="calc-add-${TIMESTAMP}"
 
 echo "  Initializing session..."
 INIT_RESPONSE_1=$(curl -s -X POST "$BASE_URL/api/v1/initialize" \
   -H "Content-Type: application/json" \
   -H "Language-Title: nodejs-calculator" \
   -d '{
-    "request_id": "'$REQUEST_ID_1'",
     "context": {
-      "operation": "add",
-      "a": 5,
-      "b": 3
-    }
+      "env": "test"
+    },
+    "script_content": "return event.params.a + event.params.b;"
   }')
 
 echo "  Init Response: $INIT_RESPONSE_1"
+
+# Extract request_id from response
+REQUEST_ID_1=$(echo $INIT_RESPONSE_1 | grep -o '"request_id":"[^"]*"' | cut -d'"' -f4)
 
 echo "  Executing function..."
 EXEC_RESPONSE_1=$(curl -s -X POST "$BASE_URL/api/v1/execute/$REQUEST_ID_1" \
   -H "Content-Type: application/json" \
   -d '{
     "params": {
-      "operation": "add",
       "a": 5,
       "b": 3
     }
@@ -55,29 +54,28 @@ echo
 
 # Test 2: Node.js Calculator - Division
 echo "3. Test 2: Node.js Calculator - Division (10 / 2)"
-REQUEST_ID_2="calc-div-${TIMESTAMP}"
 
 echo "  Initializing session..."
 INIT_RESPONSE_2=$(curl -s -X POST "$BASE_URL/api/v1/initialize" \
   -H "Content-Type: application/json" \
   -H "Language-Title: nodejs-calculator" \
   -d '{
-    "request_id": "'$REQUEST_ID_2'",
     "context": {
-      "operation": "divide",
-      "a": 10,
-      "b": 2
-    }
+      "env": "test"
+    },
+    "script_content": "return event.params.a / event.params.b;"
   }')
 
 echo "  Init Response: $INIT_RESPONSE_2"
+
+# Extract request_id from response
+REQUEST_ID_2=$(echo $INIT_RESPONSE_2 | grep -o '"request_id":"[^"]*"' | cut -d'"' -f4)
 
 echo "  Executing function..."
 EXEC_RESPONSE_2=$(curl -s -X POST "$BASE_URL/api/v1/execute/$REQUEST_ID_2" \
   -H "Content-Type: application/json" \
   -d '{
     "params": {
-      "operation": "divide",
       "a": 10,
       "b": 2
     }
@@ -90,28 +88,28 @@ echo
 
 # Test 3: Python Text Processor - Word Count
 echo "4. Test 3: Python Text Processor - Word Count"
-REQUEST_ID_3="text-count-${TIMESTAMP}"
 
 echo "  Initializing session..."
 INIT_RESPONSE_3=$(curl -s -X POST "$BASE_URL/api/v1/initialize" \
   -H "Content-Type: application/json" \
-  -H "Language-Title: python-text_processor" \
+  -H "Language-Title: python-textprocessor" \
   -d '{
-    "request_id": "'$REQUEST_ID_3'",
     "context": {
-      "action": "count_words",
-      "text": "Hello world this is a test"
-    }
+      "env": "test"
+    },
+    "script_content": "result = len(params[\"text\"].split())"
   }')
 
 echo "  Init Response: $INIT_RESPONSE_3"
+
+# Extract request_id from response
+REQUEST_ID_3=$(echo $INIT_RESPONSE_3 | grep -o '"request_id":"[^"]*"' | cut -d'"' -f4)
 
 echo "  Executing function..."
 EXEC_RESPONSE_3=$(curl -s -X POST "$BASE_URL/api/v1/execute/$REQUEST_ID_3" \
   -H "Content-Type: application/json" \
   -d '{
     "params": {
-      "action": "count_words",
       "text": "Hello world this is a test"
     }
   }')
@@ -123,28 +121,28 @@ echo
 
 # Test 4: Python Text Processor - Uppercase
 echo "5. Test 4: Python Text Processor - Uppercase"
-REQUEST_ID_4="text-upper-${TIMESTAMP}"
 
 echo "  Initializing session..."
 INIT_RESPONSE_4=$(curl -s -X POST "$BASE_URL/api/v1/initialize" \
   -H "Content-Type: application/json" \
-  -H "Language-Title: python-text_processor" \
+  -H "Language-Title: python-textprocessor" \
   -d '{
-    "request_id": "'$REQUEST_ID_4'",
     "context": {
-      "action": "uppercase",
-      "text": "hello lambda microservice"
-    }
+      "env": "test"
+    },
+    "script_content": "result = params[\"text\"].upper()"
   }')
 
 echo "  Init Response: $INIT_RESPONSE_4"
+
+# Extract request_id from response
+REQUEST_ID_4=$(echo $INIT_RESPONSE_4 | grep -o '"request_id":"[^"]*"' | cut -d'"' -f4)
 
 echo "  Executing function..."
 EXEC_RESPONSE_4=$(curl -s -X POST "$BASE_URL/api/v1/execute/$REQUEST_ID_4" \
   -H "Content-Type: application/json" \
   -d '{
     "params": {
-      "action": "uppercase",
       "text": "hello lambda microservice"
     }
   }')

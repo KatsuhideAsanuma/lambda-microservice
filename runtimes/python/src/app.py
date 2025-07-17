@@ -9,6 +9,7 @@ import time
 import uuid
 import json
 import traceback
+import psutil
 from typing import Dict, Any, Optional
 from contextlib import redirect_stdout, redirect_stderr
 import io
@@ -54,6 +55,10 @@ async def execute(request: ExecuteRequest):
 
     try:
         execution_id = str(uuid.uuid4())
+        
+        # Get memory usage before execution
+        process = psutil.Process(os.getpid())
+        memory_before = process.memory_info().rss
         
         script_to_execute = None
         if request.script_content:
@@ -156,6 +161,10 @@ async def execute(request: ExecuteRequest):
 
         execution_time = int((time.time() - start_time) * 1000)  # Convert to ms
         
+        # Get memory usage after execution
+        memory_after = process.memory_info().rss
+        memory_used = max(0, memory_after - memory_before)
+        
         if os.environ.get("DB_LOGGING_ENABLED") == "true":
             try:
                 import psycopg2
@@ -188,7 +197,7 @@ async def execute(request: ExecuteRequest):
         return ExecuteResponse(
             result=result,
             execution_time_ms=execution_time,
-            memory_usage_bytes=None
+            memory_usage_bytes=memory_used
         )
     
     except Exception as e:

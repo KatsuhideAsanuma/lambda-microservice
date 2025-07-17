@@ -188,8 +188,8 @@ async fn simulate_script_execution(
     let script_lines = script_content.lines().count();
     let script_chars = script_content.len();
     
-    // Simulate processing time based on script complexity
-    let processing_time = std::cmp::min(script_lines * 10, 1000); // Max 1 second
+    // Simulate minimal processing time based on script complexity
+    let processing_time = std::cmp::min(script_lines, 50); // Max 50ms
     tokio::time::sleep(Duration::from_millis(processing_time as u64)).await;
     
     // Create a simulated result based on input parameters
