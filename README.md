@@ -256,14 +256,24 @@ curl http://localhost:8080/metrics
 
 ## 🧪 テスト
 
-### 統合テスト実行
+### 動作確認
 ```bash
-# 全機能テスト
-bash test_api_functions.sh
+# ヘルスチェック
+curl http://localhost:8080/health
 
-# 個別テスト
-bash test_simple_api.sh
-bash test_direct_api.sh
+# 簡単な計算実行テスト
+SESSION_ID=$(curl -s -X POST http://localhost:8080/api/v1/initialize \
+  -H "Language-Title: nodejs-calculator" \
+  -H "Content-Type: application/json" \
+  -d '{"context":{"env":"production"},"script_content":"return event.params.a + event.params.b;"}' \
+  | jq -r '.request_id')
+
+RESULT=$(curl -s -X POST http://localhost:8080/api/v1/execute/$SESSION_ID \
+  -H "Content-Type: application/json" \
+  -d '{"params":{"a":10,"b":5}}' \
+  | jq -r '.result')
+
+echo "計算結果: $RESULT"
 ```
 
 ### カスタムテスト作成
@@ -618,8 +628,8 @@ git checkout -b feature/your-feature
 ### テスト実行
 
 ```bash
-# 全テスト実行
-bash test_api_functions.sh
+# 動作確認テスト
+curl http://localhost:8080/health
 
 # 単体テスト
 cd controller && cargo test
