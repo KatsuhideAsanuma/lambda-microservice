@@ -1,14 +1,10 @@
-
-use crate::{
-    api::SessionManagerTrait,
-    cache::RedisPoolTrait,
-    error::Result,
-};
+use crate::{api::SessionManagerTrait, error::Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SessionStatus {
@@ -82,7 +78,10 @@ impl Session {
             script_hash,
             compiled_artifact: None,
             compile_options,
-            compile_status: script_content.clone().as_ref().map(|_| "pending".to_string()),
+            compile_status: script_content
+                .clone()
+                .as_ref()
+                .map(|_| "pending".to_string()),
             compile_error: None,
             metadata: None,
         }
@@ -127,33 +126,45 @@ impl Session {
 }
 
 #[async_trait]
-pub trait DbPoolTrait: Send + Sync + 'static {
-    async fn execute<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64>;
-    async fn query_opt<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<tokio_postgres::Row>>;
-    async fn query_one<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row>;
+pub trait DbPoolTrait {
+    async fn execute<'a>(
+        &'a self,
+        query: &'a str,
+        params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<u64>;
+    async fn query<'a>(
+        &'a self,
+        query: &'a str,
+        params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<Vec<tokio_postgres::Row>>;
+    async fn query_opt<'a>(
+        &'a self,
+        query: &'a str,
+        params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<Option<tokio_postgres::Row>>;
+    async fn query_one<'a>(
+        &'a self,
+        query: &'a str,
+        params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<tokio_postgres::Row>;
 }
 
-
-
-
-pub struct SessionManager<D: DbPoolTrait, R: RedisPoolTrait> {
+pub struct SessionManager<D: DbPoolTrait> {
     db_pool: D,
-    redis_pool: R,
     session_expiry_seconds: u64,
 }
 
-impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManager<D, R> {
-    pub fn new(db_pool: D, redis_pool: R, session_expiry_seconds: u64) -> Self {
+impl<D: DbPoolTrait> SessionManager<D> {
+    pub fn new(db_pool: D, session_expiry_seconds: u64) -> Self {
         Self {
             db_pool,
-            redis_pool,
             session_expiry_seconds,
         }
     }
 }
 
 #[async_trait]
-impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D, R> {
+impl<D: DbPoolTrait + Send + Sync> SessionManagerTrait for SessionManager<D> {
     async fn create_session<'a>(
         &'a self,
         language_title: String,
@@ -171,15 +182,6 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
             compile_options,
             self.session_expiry_seconds,
         );
-
-        let serialized = serde_json::to_string(&session)?;
-        self.redis_pool
-            .set_ex_raw(
-                &format!("session:{}", session.request_id),
-                &serialized,
-                self.session_expiry_seconds,
-            )
-            .await?;
 
         let query = r#"
             INSERT INTO meta.sessions (
@@ -209,17 +211,6 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
     }
 
     async fn get_session<'a>(&'a self, request_id: &'a str) -> Result<Option<Session>> {
-        let redis_key = format!("session:{}", request_id);
-        let raw = self.redis_pool.get_value_raw(&redis_key).await?;
-        if let Some(raw_session) = raw {
-            let session: Session = serde_json::from_str(&raw_session)?;
-            if session.is_expired() {
-                self.expire_session(request_id).await?;
-                return Ok(None);
-            }
-            return Ok(Some(session));
-        }
-
         let query = r#"
             SELECT
                 request_id, language_title, user_id, created_at, expires_at,
@@ -227,7 +218,7 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
                 script_content, script_hash, compiled_artifact, compile_options,
                 compile_status, compile_error, metadata
             FROM meta.sessions
-            WHERE request_id = $1
+            WHERE request_id = $1 AND expires_at > NOW()
         "#;
 
         let row_opt = self.db_pool.query_opt(query, &[&request_id]).await?;
@@ -261,20 +252,6 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
                 metadata: row.get("metadata"),
             };
 
-            if session.is_expired() {
-                self.expire_session(request_id).await?;
-                return Ok(None);
-            }
-
-            let serialized = serde_json::to_string(&session)?;
-            self.redis_pool
-                .set_ex_raw(
-                    &redis_key,
-                    &serialized,
-                    self.session_expiry_seconds,
-                )
-                .await?;
-
             Ok(Some(session))
         } else {
             Ok(None)
@@ -282,15 +259,6 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
     }
 
     async fn update_session<'a>(&'a self, session: &'a Session) -> Result<()> {
-        let serialized = serde_json::to_string(&session)?;
-        self.redis_pool
-            .set_ex_raw(
-                &format!("session:{}", session.request_id),
-                &serialized,
-                self.session_expiry_seconds,
-            )
-            .await?;
-
         let query = r#"
             UPDATE meta.sessions
             SET
@@ -324,10 +292,6 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
     }
 
     async fn expire_session<'a>(&'a self, request_id: &'a str) -> Result<()> {
-        self.redis_pool
-            .del(&format!("session:{}", request_id))
-            .await?;
-
         let query = r#"
             UPDATE meta.sessions
             SET status = 'expired'
@@ -351,13 +315,13 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
 
             Ok(count as u64)
         }
-        
+
         #[cfg(test)]
         {
             let query = r#"
                 DELETE FROM meta.sessions WHERE expires_at < NOW()
             "#;
-            
+
             let count = self.db_pool.execute(query, &[]).await?;
             Ok(count)
         }
@@ -367,158 +331,7 @@ impl<D: DbPoolTrait, R: RedisPoolTrait> SessionManagerTrait for SessionManager<D
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
-
-    #[derive(Clone)]
-    pub struct MockRow {
-        data: std::collections::HashMap<String, serde_json::Value>,
-    }
-
-    impl MockRow {
-        fn new() -> Self {
-            Self {
-                data: std::collections::HashMap::new(),
-            }
-        }
-
-        fn with_data<T: serde::Serialize>(mut self, key: &str, value: T) -> Self {
-            self.data.insert(key.to_string(), serde_json::to_value(value).unwrap());
-            self
-        }
-
-        #[allow(dead_code)]
-        fn get<T: serde::de::DeserializeOwned>(&self, key: &str) -> T {
-            serde_json::from_value(self.data.get(key).unwrap().clone()).unwrap()
-        }
-    }
-
-    #[derive(Clone)]
-    pub struct MockPostgresPool {
-        execute_result: Arc<Mutex<Result<u64>>>,
-        query_opt_result: Arc<Mutex<Result<Option<MockRow>>>>,
-        #[allow(dead_code)]
-        query_one_result: Arc<Mutex<Result<MockRow>>>,
-    }
-
-    impl MockPostgresPool {
-        pub fn new() -> Self {
-            Self {
-                execute_result: Arc::new(Mutex::new(Ok(1))),
-                query_opt_result: Arc::new(Mutex::new(Ok(None))),
-                query_one_result: Arc::new(Mutex::new(Ok(MockRow::new()))),
-            }
-        }
-
-        pub fn with_execute_result(mut self, result: Result<u64>) -> Self {
-            self.execute_result = Arc::new(Mutex::new(result));
-            self
-        }
-
-        pub fn with_query_opt_result(mut self, result: Result<Option<MockRow>>) -> Self {
-            self.query_opt_result = Arc::new(Mutex::new(result));
-            self
-        }
-
-        #[allow(dead_code)]
-        pub fn with_query_one_result(mut self, result: Result<MockRow>) -> Self {
-            self.query_one_result = Arc::new(Mutex::new(result));
-            self
-        }
-
-        async fn execute<'a>(&'a self, _query: &'a str, _params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
-            self.execute_result.lock().await.clone()
-        }
-
-        #[allow(dead_code)]
-        async fn query_opt<'a>(&'a self, _query: &'a str, _params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<MockRow>> {
-            self.query_opt_result.lock().await.clone()
-        }
-
-        #[allow(dead_code)]
-        async fn query_one<'a>(&'a self, _query: &'a str, _params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<MockRow> {
-            self.query_one_result.lock().await.clone()
-        }
-    }
-    
-    #[async_trait]
-    impl DbPoolTrait for MockPostgresPool {
-        async fn execute<'a>(&'a self, query: &'a str, params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<u64> {
-            if query.contains("DELETE FROM sessions WHERE expires_at < NOW()") {
-                return Ok(5); // Return 5 deleted rows
-            }
-            self.execute(query, params).await
-        }
-        
-        async fn query_opt<'a>(&'a self, query: &'a str, _params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Option<tokio_postgres::Row>> {
-            if query.contains("SELECT * FROM sessions WHERE request_id") {
-                return Ok(None);
-            }
-            
-            let err_str = "No rows found".to_string();
-            Err(crate::Error::NotFound(err_str))
-        }
-        
-        async fn query_one<'a>(&'a self, _query: &'a str, _params: &'a [&'a (dyn tokio_postgres::types::ToSql + Sync)]) -> Result<tokio_postgres::Row> {
-            let err_str = "No rows found".to_string();
-            Err(crate::Error::NotFound(err_str))
-        }
-    }
-
-
-    #[derive(Clone)]
-    pub struct MockRedisPool {
-        get_result: Arc<Mutex<Result<Option<Session>>>>,
-        set_ex_result: Arc<Mutex<Result<()>>>,
-        del_result: Arc<Mutex<Result<()>>>,
-    }
-
-    impl MockRedisPool {
-        pub fn new() -> Self {
-            Self {
-                get_result: Arc::new(Mutex::new(Ok(None))),
-                set_ex_result: Arc::new(Mutex::new(Ok(()))),
-                del_result: Arc::new(Mutex::new(Ok(()))),
-            }
-        }
-
-        pub fn with_get_result(mut self, result: Result<Option<Session>>) -> Self {
-            self.get_result = Arc::new(Mutex::new(result));
-            self
-        }
-
-        pub fn with_set_ex_result(mut self, result: Result<()>) -> Self {
-            self.set_ex_result = Arc::new(Mutex::new(result));
-            self
-        }
-
-        pub fn with_del_result(mut self, result: Result<()>) -> Self {
-            self.del_result = Arc::new(Mutex::new(result));
-            self
-        }
-
-    }
-
-#[async_trait]
-impl RedisPoolTrait for MockRedisPool {
-    async fn get_value_raw(&self, _key: &str) -> Result<Option<String>> {
-        let result = self.get_result.lock().await.clone()?;
-        match result {
-            Some(session) => Ok(Some(serde_json::to_string(&session)?)),
-            None => Ok(None),
-        }
-    }
-
-    async fn set_ex_raw(&self, _key: &str, _value: &str, _expiry_seconds: u64) -> Result<()> {
-        self.set_ex_result.lock().await.clone()
-    }
-
-    async fn del(&self, _key: &str) -> Result<()> {
-        self.del_result.lock().await.clone()
-    }
-}
-
-    
+    use crate::database::tests::MockPostgresPool;
 
     #[tokio::test]
     async fn test_session_new() {
@@ -640,20 +453,17 @@ impl RedisPoolTrait for MockRedisPool {
     #[tokio::test]
     async fn test_session_manager_create_session() {
         let db_pool = MockPostgresPool::new().with_execute_result(Ok(1));
-        let redis_pool = MockRedisPool::new().with_set_ex_result(Ok(()));
-        let session_manager = SessionManager::new(
-            db_pool,
-            redis_pool,
-            3600,
-        );
+        let session_manager = SessionManager::new(db_pool, 3600);
 
-        let result = session_manager.create_session(
-            "nodejs-test".to_string(),
-            Some("user123".to_string()),
-            serde_json::json!({ "env": "test" }),
-            Some("function test() { return 42; }".to_string()),
-            Some(serde_json::json!({ "optimize": true })),
-        ).await;
+        let result = session_manager
+            .create_session(
+                "nodejs-test".to_string(),
+                Some("user123".to_string()),
+                serde_json::json!({ "env": "test" }),
+                Some("function test() { return 42; }".to_string()),
+                Some(serde_json::json!({ "optimize": true })),
+            )
+            .await;
 
         assert!(result.is_ok());
         let session = result.unwrap();
@@ -663,105 +473,9 @@ impl RedisPoolTrait for MockRedisPool {
     }
 
     #[tokio::test]
-    async fn test_session_manager_get_session_from_redis() {
-        let test_session = Session::new(
-            "nodejs-test".to_string(),
-            Some("user123".to_string()),
-            serde_json::json!({ "env": "test" }),
-            Some("function test() { return 42; }".to_string()),
-            Some(serde_json::json!({ "optimize": true })),
-            3600,
-        ).with_request_id("test-request-id");
-
-        let db_pool = MockPostgresPool::new();
-        let redis_pool = MockRedisPool::new().with_get_result(Ok(Some(test_session.clone())));
-        let session_manager = SessionManager::new(
-            db_pool,
-            redis_pool,
-            3600,
-        );
-
-        let result = session_manager.get_session("test-request-id").await;
-        assert!(result.is_ok());
-        let session_opt = result.unwrap();
-        assert!(session_opt.is_some());
-        let session = session_opt.unwrap();
-        assert_eq!(session.request_id, "test-request-id");
-        assert_eq!(session.language_title, "nodejs-test");
-    }
-
-    #[tokio::test]
-    async fn test_session_manager_get_session_from_db() {
-        let now = Utc::now();
-        let future = now + Duration::hours(1);
-
-        let mock_row = MockRow::new()
-            .with_data("request_id", serde_json::json!("test-request-id"))
-            .with_data("language_title", serde_json::json!("nodejs-test"))
-            .with_data("user_id", serde_json::json!("user123"))
-            .with_data("created_at", serde_json::json!(now.to_rfc3339()))
-            .with_data("expires_at", serde_json::json!(future.to_rfc3339()))
-            .with_data("execution_count", serde_json::json!(0))
-            .with_data("status", serde_json::json!("active"))
-            .with_data("context", serde_json::json!({ "env": "test" }));
-
-        let test_session = Session::new(
-            "nodejs-test".to_string(),
-            Some("user123".to_string()),
-            serde_json::json!({ "env": "test" }),
-            None,
-            None,
-            3600,
-        ).with_request_id("test-request-id");
-
-        let db_pool = MockPostgresPool::new().with_query_opt_result(Ok(Some(mock_row)));
-        let redis_pool = MockRedisPool::new()
-            .with_get_result(Ok(None)) // First call to Redis returns None
-            .with_set_ex_result(Ok(())) // Set in Redis succeeds
-            .with_get_result(Ok(Some(test_session.clone()))); // Second call to Redis returns the session
-            
-        let session_manager = SessionManager::new(
-            db_pool,
-            redis_pool,
-            3600,
-        );
-
-        let result = session_manager.get_session("test-request-id").await;
-        assert!(result.is_ok());
-        let session_opt = result.unwrap();
-        assert!(session_opt.is_some());
-        let session = session_opt.unwrap();
-        assert_eq!(session.request_id, "test-request-id");
-        assert_eq!(session.language_title, "nodejs-test");
-        assert_eq!(session.user_id, Some("user123".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_session_manager_get_expired_session() {
-        let now = Utc::now();
-        let past = now - Duration::hours(1);
-
-        let test_session = Session::new(
-            "nodejs-test".to_string(),
-            Some("user123".to_string()),
-            serde_json::json!({ "env": "test" }),
-            Some("function test() { return 42; }".to_string()),
-            Some(serde_json::json!({ "optimize": true })),
-            3600,
-        )
-        .with_request_id("test-request-id")
-        .with_expiry(past);
-
-        let db_pool = MockPostgresPool::new().with_execute_result(Ok(1));
-        let redis_pool = MockRedisPool::new()
-            .with_get_result(Ok(Some(test_session.clone())))
-            .with_del_result(Ok(()));
-        
-        let session_manager = SessionManager::new(
-            db_pool,
-            redis_pool,
-            3600,
-        );
+    async fn test_session_manager_get_session_not_found() {
+        let db_pool = MockPostgresPool::new().with_query_opt_result(Ok(None));
+        let session_manager = SessionManager::new(db_pool, 3600);
 
         let result = session_manager.get_session("test-request-id").await;
         assert!(result.is_ok());
@@ -778,15 +492,11 @@ impl RedisPoolTrait for MockRedisPool {
             Some("function test() { return 42; }".to_string()),
             Some(serde_json::json!({ "optimize": true })),
             3600,
-        ).with_request_id("test-request-id");
+        )
+        .with_request_id("test-request-id");
 
         let db_pool = MockPostgresPool::new().with_execute_result(Ok(1));
-        let redis_pool = MockRedisPool::new().with_set_ex_result(Ok(()));
-        let session_manager = SessionManager::new(
-            db_pool,
-            redis_pool,
-            3600,
-        );
+        let session_manager = SessionManager::new(db_pool, 3600);
 
         let result = session_manager.update_session(&test_session).await;
         assert!(result.is_ok());
@@ -795,30 +505,19 @@ impl RedisPoolTrait for MockRedisPool {
     #[tokio::test]
     async fn test_session_manager_expire_session() {
         let db_pool = MockPostgresPool::new().with_execute_result(Ok(1));
-        let redis_pool = MockRedisPool::new().with_del_result(Ok(()));
-        let session_manager = SessionManager::new(
-            db_pool,
-            redis_pool,
-            3600,
-        );
+        let session_manager = SessionManager::new(db_pool, 3600);
 
         let result = session_manager.expire_session("test-request-id").await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_session_manager_cleanup_expired_sessions() {
         let db_pool = MockPostgresPool::new().with_execute_result(Ok(5));
-        let redis_pool = MockRedisPool::new();
-        let session_manager = SessionManager::new(
-            db_pool,
-            redis_pool,
-            3600,
-        );
+        let session_manager = SessionManager::new(db_pool, 3600);
 
-        let result = session_manager.expire_session("test-request-id").await;
+        let result = session_manager.cleanup_expired_sessions().await;
         assert!(result.is_ok());
-        
+        assert_eq!(result.unwrap(), 5);
     }
 }

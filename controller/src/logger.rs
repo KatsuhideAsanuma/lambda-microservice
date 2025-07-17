@@ -46,7 +46,7 @@ impl<T: DbPoolTrait + ?Sized> DatabaseLogger<T> {
     }
 }
 
-impl<T: DbPoolTrait + ?Sized + 'static> DatabaseLoggerTrait for DatabaseLogger<T> {
+impl<T: DbPoolTrait + Send + Sync + ?Sized + 'static> DatabaseLoggerTrait for DatabaseLogger<T> {
     fn log_request(
         &self,
         request_id: String,
@@ -79,30 +79,11 @@ impl<T: DbPoolTrait + ?Sized + 'static> DatabaseLoggerTrait for DatabaseLogger<T
                 )
             "#;
             
-            let request_headers_str = match &request_headers {
-                Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
-                None => "{}".to_string(),
-            };
-            
-            let request_payload_str = match &request_payload {
-                Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
-                None => "{}".to_string(),
-            };
-            
-            let response_payload_str = match &response_payload {
-                Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
-                None => "{}".to_string(),
-            };
-            
-            let error_details_str = match &error_details {
-                Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
-                None => "{}".to_string(),
-            };
-            
-            let runtime_metrics_str = match &runtime_metrics {
-                Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
-                None => "{}".to_string(),
-            };
+            let request_headers_val = request_headers.unwrap_or_else(|| serde_json::json!({}));
+            let request_payload_val = request_payload.unwrap_or_else(|| serde_json::json!({}));
+            let response_payload_val = response_payload.unwrap_or_else(|| serde_json::json!({}));
+            let error_details_val = error_details.unwrap_or_else(|| serde_json::json!({}));
+            let runtime_metrics_val = runtime_metrics.unwrap_or_else(|| serde_json::json!({}));
             
             let result = (*db_pool).execute(
                 query,
@@ -111,14 +92,14 @@ impl<T: DbPoolTrait + ?Sized + 'static> DatabaseLoggerTrait for DatabaseLogger<T
                     &language_title,
                     &client_ip.unwrap_or_else(|| "".to_string()),
                     &user_id.unwrap_or_else(|| "".to_string()),
-                    &request_headers_str,
-                    &request_payload_str,
-                    &response_payload_str,
+                    &request_headers_val,
+                    &request_payload_val,
+                    &response_payload_val,
                     &status_code,
                     &duration_ms,
                     &cached,
-                    &error_details_str,
-                    &runtime_metrics_str,
+                    &error_details_val,
+                    &runtime_metrics_val,
                 ],
             ).await;
                 
@@ -158,30 +139,37 @@ impl<T: DbPoolTrait + ?Sized + 'static> DatabaseLoggerTrait for DatabaseLogger<T
                 )
             "#;
             
-            let context_str = match &context {
-                Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
-                None => "{}".to_string(),
-            };
+            let context_val = context.unwrap_or_else(|| serde_json::json!({}));
             
-            let result = (*db_pool).execute(
-                query,
-                &[
-                    &request_log_id,
-                    &error_code,
-                    &error_message,
-                    &stack_trace.unwrap_or_else(|| "".to_string()),
-                    &context_str,
-                ],
-            ).await;
-                
-            match result {
-                Ok(_) => {
-                    debug!("Successfully logged error for request {}", request_log_id);
-                    Ok(())
+            // UUIDの変換を試行
+            let uuid_result = uuid::Uuid::parse_str(&request_log_id);
+            match uuid_result {
+                Ok(uuid) => {
+                    let result = (*db_pool).execute(
+                        query,
+                        &[
+                            &uuid,
+                            &error_code,
+                            &error_message,
+                            &stack_trace.unwrap_or_else(|| "".to_string()),
+                            &context_val,
+                        ],
+                    ).await;
+                    
+                    match result {
+                        Ok(_) => {
+                            debug!("Successfully logged error for request {}", request_log_id);
+                            Ok(())
+                        }
+                        Err(e) => {
+                            error!("Failed to log error for request {}: {}", request_log_id, e);
+                            Err(Error::Database(e.to_string()))
+                        }
+                    }
                 }
-                Err(e) => {
-                    error!("Failed to log error for request {}: {}", request_log_id, e);
-                    Err(Error::Database(e.to_string()))
+                Err(_) => {
+                    error!("Invalid UUID format for request_log_id: {}", request_log_id);
+                    Err(Error::Database(format!("Invalid UUID format: {}", request_log_id)))
                 }
             }
         })

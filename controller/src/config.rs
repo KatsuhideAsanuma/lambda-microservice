@@ -22,7 +22,7 @@ pub struct RuntimeConfig {
     pub runtime_fallback_timeout_seconds: u64,
     pub runtime_max_retries: u32,
     pub max_script_size: usize,
-    pub wasm_compile_timeout_seconds: u64,
+    // pub wasm_compile_timeout_seconds: u64, // TEMPORARILY DISABLED
     pub openfaas_gateway_url: String,
     pub selection_strategy: Option<String>,
     pub runtime_mappings_file: Option<String>,
@@ -32,8 +32,28 @@ pub struct RuntimeConfig {
 }
 
 impl Config {
+    // 新規追加: 設定ファイルから改行文字を除去して読み込む
+    fn read_secret_file(path: &str) -> std::result::Result<String, std::io::Error> {
+        std::fs::read_to_string(path)
+            .map(|content| content.trim().to_string()) // 改行文字除去
+    }
+
+    // 新規追加: 設定検証
+    pub fn validate(&self) -> Result<()> {
+        // URL形式の検証
+        if !self.database_url.starts_with("postgres://") && !self.database_url.starts_with("postgresql://") {
+            return Err(Error::Config("Invalid database URL format".to_string()));
+        }
+        
+        if !self.redis_url.starts_with("redis://") {
+            return Err(Error::Config("Invalid Redis URL format".to_string()));
+        }
+        
+        Ok(())
+    }
+
     pub fn from_env() -> Result<Self> {
-        Ok(Self {
+        let config = Self {
             host: env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             port: env::var("PORT")
                 .unwrap_or_else(|_| "8080".to_string())
@@ -42,7 +62,7 @@ impl Config {
             database_url: env::var("DATABASE_URL")
                 .or_else(|_| {
                     env::var("DATABASE_URL_FILE").and_then(|path| {
-                        std::fs::read_to_string(path)
+                        Self::read_secret_file(&path)
                             .map_err(|_| env::VarError::NotPresent)
                     })
                 })
@@ -52,7 +72,7 @@ impl Config {
             redis_url: env::var("REDIS_URL")
                 .or_else(|_| {
                     env::var("REDIS_URL_FILE").and_then(|path| {
-                        std::fs::read_to_string(path)
+                        Self::read_secret_file(&path)
                             .map_err(|_| env::VarError::NotPresent)
                     })
                 })
@@ -89,12 +109,12 @@ impl Config {
                     .unwrap_or_else(|_| "1048576".to_string()) // 1MB
                     .parse()
                     .map_err(|_| Error::Config("Invalid MAX_SCRIPT_SIZE".to_string()))?,
-                wasm_compile_timeout_seconds: env::var("WASM_COMPILE_TIMEOUT_SECONDS")
-                    .unwrap_or_else(|_| "60".to_string())
-                    .parse()
-                    .map_err(|_| {
-                        Error::Config("Invalid WASM_COMPILE_TIMEOUT_SECONDS".to_string())
-                    })?,
+                // wasm_compile_timeout_seconds: env::var("WASM_COMPILE_TIMEOUT_SECONDS")
+                //     .unwrap_or_else(|_| "60".to_string())
+                //     .parse()
+                //     .map_err(|_| {
+                //         Error::Config("Invalid WASM_COMPILE_TIMEOUT_SECONDS".to_string())
+                //     })?,
                 openfaas_gateway_url: env::var("OPENFAAS_GATEWAY_URL")
                     .unwrap_or_else(|_| "http://gateway.openfaas:8080".to_string()),
                 selection_strategy: env::var("RUNTIME_SELECTION_STRATEGY")
@@ -113,7 +133,9 @@ impl Config {
                     .ok()
                     .and_then(|s| s.parse().ok()),
             },
-        })
+        };
+        
+        Ok(config)
     }
 
     #[cfg(test)]
@@ -173,7 +195,7 @@ mod tests {
             runtime_fallback_timeout_seconds: 15,
             runtime_max_retries: 3,
             max_script_size: 1048576, // 1MB
-            wasm_compile_timeout_seconds: 60,
+            // wasm_compile_timeout_seconds: 60, // TEMPORARILY DISABLED
             openfaas_gateway_url: "http://gateway.openfaas:8080".to_string(),
             selection_strategy: None,
             runtime_mappings_file: None,
@@ -203,7 +225,7 @@ mod tests {
         assert_eq!(config.runtime_config.runtime_fallback_timeout_seconds, 15);
         assert_eq!(config.runtime_config.runtime_max_retries, 3);
         assert_eq!(config.runtime_config.max_script_size, 1048576); // 1MB
-        assert_eq!(config.runtime_config.wasm_compile_timeout_seconds, 60);
+        // assert_eq!(config.runtime_config.wasm_compile_timeout_seconds, 60); // TEMPORARILY DISABLED
     }
 
     #[test]
@@ -216,7 +238,7 @@ mod tests {
             runtime_fallback_timeout_seconds: 15,
             runtime_max_retries: 3,
             max_script_size: 1048576, // 1MB
-            wasm_compile_timeout_seconds: 60,
+            // wasm_compile_timeout_seconds: 60, // TEMPORARILY DISABLED
             openfaas_gateway_url: "http://gateway.openfaas:8080".to_string(),
             selection_strategy: None,
             runtime_mappings_file: None,
@@ -239,7 +261,7 @@ mod tests {
         assert_eq!(config.session_expiry_seconds, 7200);
         assert_eq!(config.runtime_config.runtime_timeout_seconds, 60);
         assert_eq!(config.runtime_config.max_script_size, 1048576); // 1MB
-        assert_eq!(config.runtime_config.wasm_compile_timeout_seconds, 60);
+        // assert_eq!(config.runtime_config.wasm_compile_timeout_seconds, 60); // TEMPORARILY DISABLED
     }
 
     #[test]
@@ -292,7 +314,7 @@ mod tests {
             runtime_fallback_timeout_seconds: 20,
             runtime_max_retries: 5,
             max_script_size: 2097152,
-            wasm_compile_timeout_seconds: 90,
+            // wasm_compile_timeout_seconds: 90, // TEMPORARILY DISABLED
             openfaas_gateway_url: "http://gateway.openfaas:8080".to_string(),
             selection_strategy: None,
             runtime_mappings_file: None,

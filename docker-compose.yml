@@ -1,5 +1,3 @@
-version: "3"
-
 services:
   # API Gateway
   envoy:
@@ -14,7 +12,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      
+
   # OpenFaaS Gateway
   gateway:
     image: ghcr.io/openfaas/gateway:latest
@@ -25,7 +23,7 @@ services:
       - write_timeout=30s
     ports:
       - "8000:8080"
-      
+
   # OpenFaaS Provider
   faas-provider:
     image: functions/faas-netes:latest
@@ -35,13 +33,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - nats
-      
+
   # NATS for OpenFaaS
   nats:
     image: nats-streaming:0.22.0
     command: ["-m", "8222", "--store=memory", "--cluster_id=faas-cluster"]
-    
-  # Database
+
+  # Database（永続化ボリューム削除 - マイクロサービスは毎回クリーンな状態で起動）
   postgres:
     image: postgres:14-alpine
     environment:
@@ -51,20 +49,19 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # 初期化スクリプトの追加（永続化ボリューム削除）
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # Redis
+  # Redis（永続化ボリューム削除 - マイクロサービスは毎回クリーンな状態で起動）
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-    volumes:
-      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -165,10 +162,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-
-volumes:
-  postgres_data:
-  redis_data:
 
 secrets:
   db_url:

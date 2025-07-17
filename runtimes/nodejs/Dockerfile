@@ -6,8 +6,8 @@ WORKDIR /app
 RUN apk add --no-cache postgresql-client
 
 # Install dependencies
-COPY package.json package-lock.json ./
-RUN npm ci --production
+COPY package.json ./
+RUN npm install --production
 
 # Copy application code
 COPY . .

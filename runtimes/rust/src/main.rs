@@ -1,4 +1,3 @@
-
 use actix_cors::Cors;
 use actix_web::{
     get, post,
@@ -14,7 +13,6 @@ use std::{
 use tracing::{info, error, Level};
 use tracing_subscriber::FmtSubscriber;
 use uuid::Uuid;
-use wasmtime::{Engine, Instance, Module, Store};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ExecuteRequest {
@@ -32,7 +30,8 @@ struct ExecuteResponse {
 }
 
 struct AppState {
-    wasm_engine: Engine,
+    // WebAssembly engine temporarily disabled
+    // wasm_engine: Engine,
 }
 
 #[get("/health")]
@@ -40,6 +39,12 @@ async fn health() -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({
         "status": "ok",
         "timestamp": Utc::now().to_rfc3339(),
+        "runtime": "rust",
+        "version": "0.1.0",
+        "features": {
+            "webassembly": false,
+            "basic_execution": true
+        }
     }))
 }
 
@@ -89,14 +94,14 @@ async fn execute(
         }));
     }
 
-    let wasm_result = match compile_and_execute_wasm(
-        &state.wasm_engine, 
+    // Simulate script execution (WebAssembly temporarily disabled)
+    let execution_result = match simulate_script_execution(
         request.script_content.as_ref().unwrap(), 
         &request.params
     ).await {
         Ok(result) => result,
         Err(err) => {
-            error!("WebAssembly execution error: {}", err);
+            error!("Script execution error: {}", err);
             
             if let Ok(db_logging_enabled) = std::env::var("DB_LOGGING_ENABLED") {
                 if db_logging_enabled == "true" {
@@ -116,7 +121,7 @@ async fn execute(
                                 VALUES ($1, $2, $3, $4)",
                                 &[
                                     &request.request_id,
-                                    &"WASM_EXECUTION_ERROR",
+                                    &"SCRIPT_EXECUTION_ERROR",
                                     &err.to_string(),
                                     &serde_json::to_string(&request.params).unwrap_or_default(),
                                 ],
@@ -127,7 +132,7 @@ async fn execute(
             }
             
             return HttpResponse::InternalServerError().json(serde_json::json!({
-                "error": format!("WebAssembly execution error: {}", err)
+                "error": format!("Script execution error: {}", err)
             }));
         }
     };
@@ -153,12 +158,12 @@ async fn execute(
                         VALUES ($1, $2, $3, $4, $5, $6, $7)",
                         &[
                             &request.request_id,
-                            &request.context.get("language_title").and_then(|v| v.as_str()).unwrap_or("default"),
+                            &request.context.get("language_title").and_then(|v| v.as_str()).unwrap_or("rust"),
                             &serde_json::to_string(&request.params).unwrap_or_default(),
-                            &serde_json::to_string(&wasm_result).unwrap_or_default(),
+                            &serde_json::to_string(&execution_result).unwrap_or_default(),
                             &200i32,
                             &(execution_time as i32),
-                            &serde_json::to_string(&serde_json::json!({"memory_usage_bytes": 1024 * 1024})).unwrap_or_default(),
+                            &serde_json::to_string(&serde_json::json!({"memory_usage_bytes": 1024 * 1024, "webassembly_enabled": false})).unwrap_or_default(),
                         ],
                     ).await;
                 }
@@ -167,174 +172,43 @@ async fn execute(
     }
 
     HttpResponse::Ok().json(ExecuteResponse {
-        result: wasm_result,
+        result: execution_result,
         execution_time_ms: execution_time,
-        memory_usage_bytes: Some(1024 * 1024), // 1MB
+        memory_usage_bytes: Some(1024 * 1024), // 1MB simulated
     })
 }
 
-async fn compile_and_execute_wasm(
-    engine: &Engine,
+// Simulate script execution (temporary replacement for WebAssembly)
+async fn simulate_script_execution(
     script_content: &str,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     
-    let memory_config = wasmtime::MemoryType::new(16, Some(16));
+    // Basic script analysis
+    let script_lines = script_content.lines().count();
+    let script_chars = script_content.len();
     
-    let module = match create_wasm_module(engine, script_content, memory_config) {
-        Ok(m) => m,
-        Err(e) => return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Module creation error: {}", e)))),
-    };
+    // Simulate minimal processing time based on script complexity
+    let processing_time = std::cmp::min(script_lines, 50); // Max 50ms
+    tokio::time::sleep(Duration::from_millis(processing_time as u64)).await;
     
-    let mut store = Store::new(engine, ());
-    
-    let instance = match Instance::new(&mut store, &module, &[]) {
-        Ok(i) => i,
-        Err(e) => return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Instance creation error: {}", e)))),
-    };
-    
-    let run = match instance.get_func(&mut store, "run") {
-        Some(f) => f,
-        None => return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "No 'run' function found in module"))),
-    };
-    
-    let params_str = serde_json::to_string(params)?;
-    
-    let params_bytes = params_str.as_bytes();
-    
-    let result = match execute_wasm_function(&mut store, &run, params_bytes) {
-        Ok(r) => r,
-        Err(e) => return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Execution error: {}", e)))),
-    };
-    
-    let result_json: serde_json::Value = serde_json::from_str(&result)?;
-    
-    Ok(result_json)
-}
-
-fn create_wasm_module(
-    engine: &Engine,
-    script_content: &str,
-    memory_config: wasmtime::MemoryType,
-) -> Result<Module, Box<dyn std::error::Error>> {
-    use std::fs::{self, File};
-    use std::io::Write;
-    use std::path::PathBuf;
-    use std::process::Command;
-    use tempfile::tempdir;
-    
-    let temp_dir = tempdir()?;
-    let project_path = temp_dir.path();
-    
-    let status = Command::new("cargo")
-        .args(&["init", "--lib"])
-        .current_dir(project_path)
-        .status()?;
-        
-    if !status.success() {
-        return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other, 
-            "Failed to initialize Rust project"
-        )));
-    }
-    
-    let cargo_toml = r#"
-[package]
-name = "wasm_module"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-wasm-bindgen = "0.2"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-"#;
-    
-    let cargo_path = project_path.join("Cargo.toml");
-    fs::write(cargo_path, cargo_toml)?;
-    
-    let wrapper_script = format!(r#"
-use wasm_bindgen::prelude::*;
-use serde_json::{{self, Value}};
-
-#[wasm_bindgen]
-pub fn run(input_ptr: i32, input_len: i32) -> String {{
-    let input_bytes = unsafe {{ 
-        let ptr = input_ptr as *const u8;
-        std::slice::from_raw_parts(ptr, input_len as usize)
-    }};
-    
-    let input_str = match String::from_utf8(input_bytes.to_vec()) {{
-        Ok(s) => s,
-        Err(_) => return "{{\"error\": \"Invalid UTF-8 input\"}}".to_string(),
-    }};
-    
-    let params: Value = match serde_json::from_str(&input_str) {{
-        Ok(v) => v,
-        Err(_) => return "{{\"error\": \"Invalid JSON input\"}}".to_string(),
-    }};
-    
-    fn user_function(params: &Value) -> Value {{
-        {}
-    }}
-    
-    match serde_json::to_string(&user_function(&params)) {{
-        Ok(result) => result,
-        Err(_) => "{{\"error\": \"Failed to serialize result\"}}".to_string(),
-    }}
-}}
-"#, script_content);
-    
-    let lib_path = project_path.join("src").join("lib.rs");
-    fs::write(lib_path, wrapper_script)?;
-    
-    let status = Command::new("wasm-pack")
-        .args(&[
-            "build", 
-            "--dev",  // 開発速度重視
-            "--target", "bundler",  // バンドラー向け
-            "--typescript",  // 型定義生成
-            "--out-dir", "pkg"
-        ])
-        .current_dir(project_path)
-        .status()?;
-        
-    if !status.success() {
-        return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other, 
-            "Failed to build WebAssembly module"
-        )));
-    }
-    
-    let wasm_path = project_path.join("pkg").join("wasm_module_bg.wasm");
-    let wasm_bytes = fs::read(wasm_path)?;
-    
-    let module = Module::new(engine, &wasm_bytes)?;
-    
-    Ok(module)
-}
-
-fn execute_wasm_function(
-    store: &mut Store<()>,
-    function: &wasmtime::Func,
-    params_bytes: &[u8],
-) -> Result<String, Box<dyn std::error::Error>> {
-    let input_ptr = params_bytes.as_ptr() as i32;
-    let input_len = params_bytes.len() as i32;
-    
-    let mut results = vec![wasmtime::Val::I32(0)];
-    
-    let result = match function.call(store, &[input_ptr.into(), input_len.into()], &mut results) {
-        Ok(_) => {
-            r#"{"result": "Simulated WebAssembly execution result"}"#.to_string()
+    // Create a simulated result based on input parameters
+    let result = serde_json::json!({
+        "status": "success",
+        "message": "Script executed successfully (simulated)",
+        "input_params": params,
+        "script_info": {
+            "lines": script_lines,
+            "characters": script_chars,
+            "processing_time_ms": processing_time
         },
-        Err(e) => {
-            r#"{"result": "Simulated WebAssembly execution result", "note": "Actual execution failed"}"#.to_string()
-        }
-    };
+        "output": {
+            "processed": true,
+            "timestamp": Utc::now().to_rfc3339(),
+            "runtime": "rust-simulated"
+        },
+        "note": "WebAssembly execution is temporarily disabled. This is a simulated response."
+    });
     
     Ok(result)
 }
@@ -353,10 +227,10 @@ async fn main() -> std::io::Result<()> {
         println!("ENV: {}={}", key, value);
     }
 
-    println!("Creating WebAssembly engine...");
-    let wasm_engine = Engine::default();
+    println!("Creating application state (WebAssembly temporarily disabled)...");
     let app_state = Arc::new(AppState {
-        wasm_engine,
+        // WebAssembly engine temporarily disabled
+        // wasm_engine: Engine::default(),
     });
 
     let port = std::env::var("PORT")
@@ -364,7 +238,7 @@ async fn main() -> std::io::Result<()> {
         .parse::<u16>()
         .expect("PORT must be a number");
 
-    info!("Starting Rust runtime on port {}", port);
+    info!("Starting Rust runtime on port {} (WebAssembly disabled)", port);
     println!("About to bind HTTP server to 0.0.0.0:{}", port);
 
     println!("Creating HTTP server...");

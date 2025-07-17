@@ -1,9 +1,10 @@
-use actix_web::{test, App, web, HttpResponse};
+use actix_web::{test, web, App, HttpResponse};
 use lambda_microservice_controller::{
-    config::{Config, RuntimeConfig}, 
-    function::FunctionManager, session::SessionManager,
+    config::{Config, RuntimeConfig},
+    function::FunctionManager,
+    mocks::{MockDatabaseLogger, MockPostgresPool, MockRedisPool, MockRuntimeManager},
     runtime::RuntimeSelectionStrategy,
-    mocks::{MockPostgresPool, MockRedisPool, MockDatabaseLogger, MockRuntimeManager},
+    session::SessionManager,
 };
 use std::sync::Arc;
 use tracing::{Level, Subscriber};
@@ -24,7 +25,7 @@ fn create_test_config() -> Config {
             runtime_timeout_seconds: 30,
             runtime_fallback_timeout_seconds: 15,
             max_script_size: 1048576,
-            wasm_compile_timeout_seconds: 60,
+            // wasm_compile_timeout_seconds: 60, // TEMPORARILY DISABLED
             openfaas_gateway_url: "http://gateway.openfaas:8080".to_string(),
             selection_strategy: Some("PrefixMatching".to_string()),
             runtime_mappings_file: None,
@@ -45,21 +46,21 @@ async fn test_init_tracing() {
 #[tokio::test]
 async fn test_create_cors() {
     let cors = lib_main::create_cors();
-    
-    let app = test::init_service(
-        App::new()
-            .wrap(cors)
-            .route("/test", web::get().to(|| async { HttpResponse::Ok().body("test") }))
-    ).await;
-    
+
+    let app = test::init_service(App::new().wrap(cors).route(
+        "/test",
+        web::get().to(|| async { HttpResponse::Ok().body("test") }),
+    ))
+    .await;
+
     let req = test::TestRequest::get()
         .uri("/test")
         .insert_header(("Origin", "http://example.com"))
         .to_request();
-    
+
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success());
-    
+
     let headers = resp.headers();
     assert!(headers.contains_key("access-control-allow-origin"));
 }
@@ -73,19 +74,19 @@ async fn test_configure_app_for_testing() {
 async fn test_configure_app_test() {
     let postgres_pool = MockPostgresPool::new();
     let redis_pool = MockRedisPool::new();
-    
+
     let config = create_test_config();
-    
+
     let session_manager = Arc::new(SessionManager::new(
         postgres_pool.clone(),
         redis_pool.clone(),
         config.session_expiry_seconds,
     ));
-    
+
     let function_manager = Arc::new(FunctionManager::new(postgres_pool.clone()));
     let db_logger = Arc::new(MockDatabaseLogger::new());
     let runtime_manager = Arc::new(MockRuntimeManager::new());
-    
+
     assert!(lib_main::configure_app_test(
         postgres_pool.clone(),
         redis_pool.clone(),
@@ -101,19 +102,19 @@ async fn test_configure_app_test() {
 async fn test_configure_app() {
     let postgres_pool = MockPostgresPool::new();
     let redis_pool = MockRedisPool::new();
-    
+
     let config = create_test_config();
-    
+
     let session_manager = Arc::new(SessionManager::new(
         postgres_pool.clone(),
         redis_pool.clone(),
         config.session_expiry_seconds,
     ));
-    
+
     let function_manager = Arc::new(FunctionManager::new(postgres_pool.clone()));
     let db_logger = Arc::new(MockDatabaseLogger::new());
     let runtime_manager = Arc::new(MockRuntimeManager::new());
-    
+
     let scope = lib_main::configure_app(
         postgres_pool.clone(),
         redis_pool.clone(),
@@ -121,15 +122,15 @@ async fn test_configure_app() {
         function_manager.clone(),
         db_logger.clone(),
         runtime_manager.clone(),
-        config.clone()
+        config.clone(),
     );
-    
+
     let app = App::new().service(scope);
-    
+
     let app = test::init_service(app).await;
-    
+
     let req = test::TestRequest::get().uri("/health").to_request();
     let resp = test::call_service(&app, req).await;
-    
+
     assert!(resp.status().is_success());
 }

@@ -60,30 +60,33 @@ impl<D: DbPoolTrait> FunctionManager<D> {
     }
 
     pub async fn get_functions(&self, query: &FunctionQuery) -> Result<Vec<Function>> {
-        let mut sql = "SELECT id, language, title, language_title, description, schema_definition, 
-                      examples, created_at, updated_at, created_by, is_active, version, tags 
-                      FROM meta.functions WHERE 1=1".to_string();
+        let mut sql = "SELECT f.id, f.language, f.title, f.language_title, f.description, f.schema_definition, 
+                      f.examples, f.created_at, f.updated_at, f.created_by, f.is_active, f.version, f.tags,
+                      s.content as script_content
+                      FROM meta.functions f
+                      LEFT JOIN meta.scripts s ON f.id = s.function_id
+                      WHERE 1=1".to_string();
         
         let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::new();
         let mut param_index = 1;
         
         if let Some(language) = &query.language {
-            sql.push_str(&format!(" AND language = ${}", param_index));
+            sql.push_str(&format!(" AND f.language = ${}", param_index));
             params.push(language);
             param_index += 1;
         }
         
         if let Some(user_id) = &query.user_id {
-            sql.push_str(&format!(" AND created_by = ${}", param_index));
+            sql.push_str(&format!(" AND f.created_by = ${}", param_index));
             params.push(user_id);
             param_index += 1;
         }
         
         if let Some(r#type) = &query.r#type {
             if r#type == "predefined" {
-                sql.push_str(" AND created_by IS NULL");
+                sql.push_str(" AND f.created_by IS NULL");
             } else if r#type == "dynamic" {
-                sql.push_str(" AND created_by IS NOT NULL");
+                sql.push_str(" AND f.created_by IS NOT NULL");
             }
         }
         
@@ -91,14 +94,13 @@ impl<D: DbPoolTrait> FunctionManager<D> {
         let per_page = query.per_page.unwrap_or(20);
         let offset = (page - 1) * per_page;
         
-        sql.push_str(&format!(" ORDER BY created_at DESC LIMIT ${} OFFSET ${}", 
+        sql.push_str(&format!(" ORDER BY f.created_at DESC LIMIT ${} OFFSET ${}", 
                              param_index, param_index + 1));
         params.push(&per_page);
         params.push(&offset);
         
-        let rows = self.db_pool.query_opt(&sql, &params).await?
-            .map(|_| Vec::new()) // This is a placeholder, we need to implement proper row handling
-            .unwrap_or_default();
+        // Use query instead of query_opt to get multiple rows
+        let rows = self.db_pool.query(&sql, &params).await?;
         
         let functions = rows.into_iter().map(|row| self.row_to_function(&row)).collect();
         
@@ -120,7 +122,7 @@ impl<D: DbPoolTrait> FunctionManager<D> {
             is_active: row.get("is_active"),
             version: row.get("version"),
             tags: row.get("tags"),
-            script_content: None,
+            script_content: row.try_get("script_content").ok(),
         }
     }
 }

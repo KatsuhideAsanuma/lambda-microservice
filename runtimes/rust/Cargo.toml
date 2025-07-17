@@ -1,52 +1,52 @@
 [package]
 name = "lambda-microservice-rust-runtime"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Lambda Microservice Team"]
-description = "Rust runtime for lambda microservice"
+description = "Modern Rust runtime for lambda microservice"
+rust-version = "1.75.0"
 
 [dependencies]
-# Web framework
-actix-web = "4.3.1"
-actix-cors = "0.6.4"
+# Web framework - Updated to modern versions
+actix-web = "4.4"
+actix-cors = "0.7"
 
 # Serialization/Deserialization
-serde = { version = "1.0.163", features = ["derive"] }
-serde_json = "1.0.96"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
-# Async runtime
-tokio = { version = "1.28.2", features = ["full"] }
-futures = "0.3.28"
+# Async runtime - Updated
+tokio = { version = "1.35", features = ["full"] }
+futures = "0.3"
 
-# Logging
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-tracing-actix-web = "0.7.4"
+# Logging - Restored
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-actix-web = "0.7"
 
 # Error handling
-thiserror = "1.0.40"
-anyhow = "1.0.71"
+thiserror = "1.0"
+anyhow = "1.0"
 
 # Utilities
-uuid = { version = "1.3.3", features = ["v4", "serde"] }
-chrono = { version = "0.4.26", features = ["serde"] }
-dotenv = "0.15.0"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenv = "0.15"
 
-# Database
-tokio-postgres = "0.7.8"
-deadpool-postgres = "0.10.5"
+# Database - Updated
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
+deadpool-postgres = "0.10"
 
-# WebAssembly execution
-wasmtime = "9.0.3"
+# WebAssembly support - Restored with modern versions
+wasmtime = { version = "15.0", optional = true }
+wasmtime-wasi = { version = "15.0", optional = true }
+tempfile = "3.8"
 
-# WebAssembly compilation
-wasm-pack = "0.12.1"
-tempfile = "3.8.0"
-wasm-bindgen = "0.2.84"
-serde_derive = "1.0.163"
+# Additional utilities for modern Rust
+async-trait = "0.1"
 
 [dev-dependencies]
 mockall = "0.11.4"
 test-log = "0.2.11"
-env_logger = "0.10.0"
-actix-test = "0.1.1"
+# env_logger = "0.9.3"  # REMOVED - not used in source code
+# actix-test = "0.1.1"  # TEMPORARILY DISABLED

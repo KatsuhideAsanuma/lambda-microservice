@@ -6,7 +6,7 @@ use std::{
     time::Duration,
     collections::HashMap,
 };
-use tonic::transport::{Channel, Endpoint};
+// use tonic::transport::{Channel, Endpoint}; // TEMPORARILY DISABLED
 use tracing::{debug, error, warn, info};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -34,19 +34,20 @@ impl RequestType {
     }
 }
 
-pub mod runtime {
-    tonic::include_proto!("runtime");
-}
+// gRPC proto compilation temporarily disabled
+// pub mod runtime {
+//     tonic::include_proto!("runtime");
+// }
 
-use runtime::{
-    runtime_service_client::RuntimeServiceClient,
-    ExecuteRequest, ExecuteResponse, 
-    InitializeRequest, InitializeResponse,
-    HealthCheckRequest, HealthCheckResponse,
-    MetricsRequest, MetricsResponse,
-    LogsRequest, LogsResponse,
-    ConfigRequest, ConfigResponse,
-};
+// use runtime::{
+//     runtime_service_client::RuntimeServiceClient,
+//     ExecuteRequest, ExecuteResponse, 
+//     InitializeRequest, InitializeResponse,
+//     HealthCheckRequest, HealthCheckResponse,
+//     MetricsRequest, MetricsResponse,
+//     LogsRequest, LogsResponse,
+//     ConfigRequest, ConfigResponse,
+// };
 
 #[async_trait]
 pub trait GrpcClient: Send + Sync {
@@ -159,7 +160,7 @@ impl Default for TimeoutConfig {
 }
 
 pub struct GrpcProtocolAdapter {
-    client_cache: Mutex<HashMap<String, RuntimeServiceClient<Channel>>>,
+    // client_cache: Mutex<HashMap<String, RuntimeServiceClient<Channel>>>, // TEMPORARILY DISABLED
     circuit_breakers: Mutex<HashMap<String, Arc<CircuitBreaker>>>,
     timeout_config: TimeoutConfig,
 }
@@ -176,9 +177,10 @@ impl GrpcProtocolAdapter {
             None => Err(Error::Runtime(format!("Unknown request type: {}", request_type))),
         }
     }
+    
     pub fn new() -> Self {
         Self {
-            client_cache: Mutex::new(HashMap::new()),
+            // client_cache: Mutex::new(HashMap::new()), // TEMPORARILY DISABLED
             circuit_breakers: Mutex::new(HashMap::new()),
             timeout_config: TimeoutConfig::default(),
         }
@@ -207,29 +209,30 @@ impl GrpcProtocolAdapter {
         }
     }
     
-    pub async fn get_client(&self, url: &str) -> Result<RuntimeServiceClient<Channel>> {
-        {
-            let cache = self.client_cache.lock().unwrap();
-            if let Some(client) = cache.get(url) {
-                return Ok(client.clone());
-            }
-        }
+    // gRPC client temporarily disabled
+    // pub async fn get_client(&self, url: &str) -> Result<RuntimeServiceClient<Channel>> {
+    //     {
+    //         let cache = self.client_cache.lock().unwrap();
+    //         if let Some(client) = cache.get(url) {
+    //             return Ok(client.clone());
+    //         }
+    //     }
         
-        let endpoint = Endpoint::from_shared(url.to_string())
-            .map_err(|e| Error::Runtime(format!("Invalid gRPC endpoint: {}", e)))?
-            .connect_timeout(Duration::from_secs(5));
+    //     let endpoint = Endpoint::from_shared(url.to_string())
+    //         .map_err(|e| Error::Runtime(format!("Invalid gRPC endpoint: {}", e)))?
+    //         .connect_timeout(Duration::from_secs(5));
             
-        let client = RuntimeServiceClient::connect(endpoint)
-            .await
-            .map_err(|e| Error::Runtime(format!("Failed to connect to gRPC endpoint: {}", e)))?;
+    //     let client = RuntimeServiceClient::connect(endpoint)
+    //         .await
+    //         .map_err(|e| Error::Runtime(format!("Failed to connect to gRPC endpoint: {}", e)))?;
             
-        {
-            let mut cache = self.client_cache.lock().unwrap();
-            cache.insert(url.to_string(), client.clone());
-        }
+    //     {
+    //         let mut cache = self.client_cache.lock().unwrap();
+    //         cache.insert(url.to_string(), client.clone());
+    //     }
         
-        Ok(client)
-    }
+    //     Ok(client)
+    // }
     
     pub async fn with_retry<F, Fut, T>(&self, url: &str, _operation: &str, f: F) -> Result<T>
     where
@@ -302,179 +305,63 @@ impl GrpcProtocolAdapter {
 
 #[async_trait]
 impl ProtocolAdapter for GrpcProtocolAdapter {
-    async fn send_request(&self, url: &str, payload: &[u8], _timeout_ms: u64) -> Result<Vec<u8>> {
-        debug!("Sending gRPC request to {}", url);
+    async fn send_request(&self, _url: &str, _payload: &[u8], _timeout_ms: u64) -> Result<Vec<u8>> {
+        // gRPC functionality temporarily disabled
+        Err(Error::Runtime("gRPC protocol is temporarily disabled".to_string()))
         
-        let payload_str = std::str::from_utf8(payload)
-            .map_err(|e| Error::Runtime(format!("Invalid UTF-8 in payload: {}", e)))?;
-            
-        let payload_json: serde_json::Value = serde_json::from_str(payload_str)
-            .map_err(|e| Error::Runtime(format!("Invalid JSON in payload: {}", e)))?;
-            
-        let request_type = payload_json["request_type"]
-            .as_str()
-            .unwrap_or("execute");
-            
-        let timeout = self.get_timeout(request_type);
+        // Original implementation commented out:
+        // debug!("Sending gRPC request to {}", url);
         
-        let result = self.with_retry(url, request_type, || async {
-            let mut client = self.get_client(url).await?;
+        // let payload_str = std::str::from_utf8(payload)
+        //     .map_err(|e| Error::Runtime(format!("Invalid UTF-8 in payload: {}", e)))?;
             
-            match request_type {
-                "execute" => {
-                    let request = ExecuteRequest {
-                        request_id: payload_json["request_id"].as_str().unwrap_or("").to_string(),
-                        params: payload_json["params"].to_string(),
-                        context: payload_json["context"].to_string(),
-                        script_content: payload_json["script_content"].as_str().map(|s| s.to_string()),
-                    };
-                    
-                    let response = tokio::time::timeout(
-                        timeout,
-                        client.execute(request)
-                    ).await
-                     .map_err(|_| Error::Runtime("gRPC execute request timed out".to_string()))?
-                     .map_err(|e| Error::Runtime(format!("gRPC execute request failed: {}", e)))?;
-                     
-                    let response_json = serde_json::json!({
-                        "result": response.get_ref().result,
-                        "execution_time_ms": response.get_ref().execution_time_ms,
-                        "memory_usage_bytes": response.get_ref().memory_usage_bytes,
-                    });
-                    
-                    let response_bytes = serde_json::to_vec(&response_json)
-                        .map_err(|e| Error::Runtime(format!("Failed to serialize execute response: {}", e)))?;
-                        
-                    Ok(response_bytes)
-                },
-                "initialize" => {
-                    let request = InitializeRequest {
-                        request_id: payload_json["request_id"].as_str().unwrap_or("").to_string(),
-                        context: payload_json["context"].to_string(),
-                        script_content: payload_json["script_content"].as_str().unwrap_or("").to_string(),
-                    };
-                    
-                    let response = tokio::time::timeout(
-                        timeout,
-                        client.initialize(request)
-                    ).await
-                     .map_err(|_| Error::Runtime("gRPC initialize request timed out".to_string()))?
-                     .map_err(|e| Error::Runtime(format!("gRPC initialize request failed: {}", e)))?;
-                     
-                    let response_json = serde_json::json!({
-                        "request_id": response.get_ref().request_id,
-                        "success": response.get_ref().success,
-                        "error": response.get_ref().error,
-                    });
-                    
-                    let response_bytes = serde_json::to_vec(&response_json)
-                        .map_err(|e| Error::Runtime(format!("Failed to serialize initialize response: {}", e)))?;
-                        
-                    Ok(response_bytes)
-                },
-                "health_check" => {
-                    let request = HealthCheckRequest {};
-                    
-                    let response = tokio::time::timeout(
-                        timeout,
-                        client.health_check(request)
-                    ).await
-                     .map_err(|_| Error::Runtime("gRPC health check request timed out".to_string()))?
-                     .map_err(|e| Error::Runtime(format!("gRPC health check request failed: {}", e)))?;
-                     
-                    let response_json = serde_json::json!({
-                        "status": response.get_ref().status,
-                        "timestamp": response.get_ref().timestamp,
-                    });
-                    
-                    let response_bytes = serde_json::to_vec(&response_json)
-                        .map_err(|e| Error::Runtime(format!("Failed to serialize health check response: {}", e)))?;
-                        
-                    Ok(response_bytes)
-                },
-                "metrics" => {
-                    let request = MetricsRequest {
-                        request_id: payload_json["request_id"].as_str().unwrap_or("").to_string(),
-                        metric_name: payload_json["metric_name"].as_str().map(|s| s.to_string()),
-                        time_range: payload_json["time_range"].as_str().map(|s| s.to_string()),
-                    };
-                    
-                    let response = tokio::time::timeout(
-                        timeout,
-                        client.get_metrics(request)
-                    ).await
-                     .map_err(|_| Error::Runtime("gRPC metrics request timed out".to_string()))?
-                     .map_err(|e| Error::Runtime(format!("gRPC metrics request failed: {}", e)))?;
-                     
-                    let response_json = serde_json::json!({
-                        "request_id": response.get_ref().request_id,
-                        "metrics": response.get_ref().metrics,
-                    });
-                    
-                    let response_bytes = serde_json::to_vec(&response_json)
-                        .map_err(|e| Error::Runtime(format!("Failed to serialize metrics response: {}", e)))?;
-                        
-                    Ok(response_bytes)
-                },
-                "logs" => {
-                    let request = LogsRequest {
-                        request_id: payload_json["request_id"].as_str().unwrap_or("").to_string(),
-                        log_level: payload_json["log_level"].as_str().map(|s| s.to_string()),
-                        time_range: payload_json["time_range"].as_str().map(|s| s.to_string()),
-                        limit: payload_json["limit"].as_u64().map(|n| n as u32),
-                        offset: payload_json["offset"].as_u64().map(|n| n as u32),
-                    };
-                    
-                    let response = tokio::time::timeout(
-                        timeout,
-                        client.get_logs(request)
-                    ).await
-                     .map_err(|_| Error::Runtime("gRPC logs request timed out".to_string()))?
-                     .map_err(|e| Error::Runtime(format!("gRPC logs request failed: {}", e)))?;
-                     
-                    let response_json = serde_json::json!({
-                        "request_id": response.get_ref().request_id,
-                        "logs": response.get_ref().logs,
-                        "total_count": response.get_ref().total_count,
-                    });
-                    
-                    let response_bytes = serde_json::to_vec(&response_json)
-                        .map_err(|e| Error::Runtime(format!("Failed to serialize logs response: {}", e)))?;
-                        
-                    Ok(response_bytes)
-                },
-                "config" => {
-                    let request = ConfigRequest {
-                        request_id: payload_json["request_id"].as_str().unwrap_or("").to_string(),
-                        config: payload_json["config"].to_string(),
-                    };
-                    
-                    let response = tokio::time::timeout(
-                        timeout,
-                        client.update_config(request)
-                    ).await
-                     .map_err(|_| Error::Runtime("gRPC config request timed out".to_string()))?
-                     .map_err(|e| Error::Runtime(format!("gRPC config request failed: {}", e)))?;
-                     
-                    let response_json = serde_json::json!({
-                        "request_id": response.get_ref().request_id,
-                        "success": response.get_ref().success,
-                        "error": response.get_ref().error,
-                        "current_config": response.get_ref().current_config,
-                    });
-                    
-                    let response_bytes = serde_json::to_vec(&response_json)
-                        .map_err(|e| Error::Runtime(format!("Failed to serialize config response: {}", e)))?;
-                        
-                    Ok(response_bytes)
-                },
-                _ => Err(Error::Runtime(format!("Unknown request type: {}", request_type))),
-            }
-        }).await;
+        // let payload_json: serde_json::Value = serde_json::from_str(payload_str)
+        //     .map_err(|e| Error::Runtime(format!("Invalid JSON in payload: {}", e)))?;
+            
+        // let request_type = payload_json["request_type"]
+        //     .as_str()
+        //     .unwrap_or("execute");
+            
+        // let timeout = self.get_timeout(request_type);
         
-        match result {
-            Ok(response) => Ok(response),
-            Err(e) => self.degraded_operation(&e, request_type),
-        }
+        // let result = self.with_retry(url, request_type, || async {
+        //     let mut client = self.get_client(url).await?;
+            
+        //     match request_type {
+        //         "execute" => {
+        //             let request = ExecuteRequest {
+        //                 request_id: payload_json["request_id"].as_str().unwrap_or("").to_string(),
+        //                 params: payload_json["params"].to_string(),
+        //                 context: payload_json["context"].to_string(),
+        //                 script_content: payload_json["script_content"].as_str().map(|s| s.to_string()),
+        //             };
+                    
+        //             let response = tokio::time::timeout(
+        //                 timeout,
+        //                 client.execute(request)
+        //             ).await
+        //              .map_err(|_| Error::Runtime("gRPC execute request timed out".to_string()))?
+        //              .map_err(|e| Error::Runtime(format!("gRPC execute request failed: {}", e)))?;
+                     
+        //             let response_json = serde_json::json!({
+        //                 "result": response.get_ref().result,
+        //                 "execution_time_ms": response.get_ref().execution_time_ms,
+        //                 "memory_usage_bytes": response.get_ref().memory_usage_bytes,
+        //             });
+                    
+        //             let response_bytes = serde_json::to_vec(&response_json)
+        //                 .map_err(|e| Error::Runtime(format!("Failed to serialize execute response: {}", e)))?;
+                        
+        //             Ok(response_bytes)
+        //         },
+        //         // ... other request types ...
+        //         _ => Err(Error::Runtime(format!("Unknown request type: {}", request_type))),
+        //     }
+        // }).await;
+        
+        // match result {
+        //     Ok(response) => Ok(response),
+        //     Err(e) => self.degraded_operation(&e, request_type),
+        // }
     }
 }
